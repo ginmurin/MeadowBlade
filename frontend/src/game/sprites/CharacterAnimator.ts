@@ -40,15 +40,30 @@ export class CharacterAnimator {
 
   public sync(snapshot: ActorSnapshot): void {
     const alive = snapshot.action !== 'dead';
-    this.body.setVisible(alive);
 
     if (!alive) {
+      if (snapshot.peerName) {
+        this.body.setVisible(true);
+        this.body.setAlpha(0.4);
+        this.body.setTint(0x64748b);
+        this.body.setPosition(snapshot.x, snapshot.y);
+        this.body.setDepth(snapshot.y);
+        if (this.peerNameText) {
+          this.peerNameText.setText(`${snapshot.peerName} [KNOCKED OUT]`).setVisible(true);
+          this.peerNameText.setPosition(snapshot.x, snapshot.y - 38);
+        }
+      } else {
+        this.body.setVisible(false);
+      }
       this.overlay?.setVisible(false);
       this.hpBg?.setVisible(false);
       this.hpFill?.setVisible(false);
+      this.peerHpBg?.setVisible(false);
+      this.peerHpFill?.setVisible(false);
       return;
     }
 
+    this.body.setVisible(true);
     this.body.setPosition(snapshot.x, snapshot.y);
     this.body.setDepth(snapshot.y);
 

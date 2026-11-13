@@ -475,7 +475,7 @@ export interface NetworkPlayerSync {
 
 export type NetGameMessage =
   | { type: 'PLAYER_STATE'; state: NetworkPlayerSync }
-  | { type: 'PLAYER_ATTACK'; attackerId: string; hero: CharacterKind; x: number; y: number; attackType: string; damage: number; facing: string }
+  | { type: 'PLAYER_ATTACK'; attackerId: string; attackId?: string; hero: CharacterKind; x: number; y: number; attackType: string; damage: number; facing: string }
   | { type: 'PLAYER_HIT'; targetId: string; damage: number; attackerId: string }
   | { type: 'PLAYER_LEFT'; id: string };
 
@@ -584,10 +584,19 @@ export class MultiplayerGameSession {
     }
   }
 
-  public broadcastAttack(hero: CharacterKind, x: number, y: number, attackType: string, damage: number, facing: string): void {
+  public broadcastAttack(
+    hero: CharacterKind,
+    x: number,
+    y: number,
+    attackType: string,
+    damage: number,
+    facing: string,
+    attackId?: string
+  ): void {
     const msg: NetGameMessage = {
       type: 'PLAYER_ATTACK',
       attackerId: this.localId,
+      attackId: attackId || `${this.localId}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       hero,
       x,
       y,

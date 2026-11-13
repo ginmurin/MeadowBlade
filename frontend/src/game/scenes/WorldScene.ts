@@ -1,8 +1,10 @@
 ﻿import Phaser from 'phaser';
 import type {
   CharacterKind,
+  Direction8,
   MapSpawnData,
   PlayerInput,
+  Point2D,
   SimEvent,
   WorldSnapshot
 } from '../../sim/types';
@@ -25,6 +27,7 @@ export interface WorldSceneInitData {
   lobbyRoomCode?: string;
   isPvp?: boolean;
   localPlayerName?: string;
+  isHost?: boolean;
   existingNet?: { peer: any; connections: any[] };
 }
 
@@ -149,9 +152,12 @@ export class WorldScene extends Phaser.Scene {
   private peerAnimators = new Map<string, CharacterAnimator>();
   private lobbyRoomCode?: string;
   private isPvp = false;
+  private isHost = true;
   private localPlayerName = 'Hero';
   private existingNet?: { peer: any; connections: any[] };
   private peerPointers = new Map<string, Phaser.GameObjects.Text>();
+  private netBroadcastTimer = 0;
+  private processedAttackIds = new Set<string>();
 
   constructor() {
     super('WorldScene');
@@ -166,6 +172,7 @@ export class WorldScene extends Phaser.Scene {
     this.initialHero = data?.hero || 'crimson';
     this.lobbyRoomCode = data?.lobbyRoomCode;
     this.isPvp = Boolean(data?.isPvp);
+    this.isHost = data?.isHost !== undefined ? Boolean(data.isHost) : true;
     this.localPlayerName = data?.localPlayerName || localStorage.getItem('meadowblade_player_name') || 'Hero';
     this.existingNet = data?.existingNet;
 
@@ -174,6 +181,8 @@ export class WorldScene extends Phaser.Scene {
     this.enemyAnimators.clear();
     this.projectileSprites.clear();
     this.peerAnimators.clear();
+    this.processedAttackIds.clear();
+    this.netBroadcastTimer = 0;
     for (const ptr of this.peerPointers.values()) {
       ptr.destroy();
     }
@@ -203,7 +212,21 @@ export class WorldScene extends Phaser.Scene {
     const mapData = this.buildTiledMap(tilemap, rawJson);
     this.initAnimatedTiles(tilemap, rawJson);
 
-    this.sim = new WorldSimulation(mapData, this.initialHero, this.waveMode);
+    // Separate spawn locations: Host West, Guest East
+    let spawnOffset: Point2D = { x: 0, y: 0 };
+    let initialFacing: Direction8 = 'S';
+    if (this.lobbyRoomCode) {
+      const isMeadow = (!this.tiledMapKey || this.tiledMapKey === 'meadow');
+      if (isMeadow) {
+        spawnOffset = this.isHost ? { x: -160, y: 0 } : { x: 260, y: 0 };
+        initialFacing = this.isHost ? 'E' : 'W';
+      } else {
+        spawnOffset = this.isHost ? { x: -140, y: 0 } : { x: 140, y: 0 };
+        initialFacing = this.isHost ? 'E' : 'W';
+      }
+    }
+
+    this.sim = new WorldSimulation(mapData, this.initialHero, this.waveMode, spawnOffset, initialFacing);
     const initial = this.sim.getSnapshot();
 
     this.playerAnimator = new CharacterAnimator(this, initial.player);
@@ -259,14 +282,27 @@ export class WorldScene extends Phaser.Scene {
     if (this.isPvp) {
       this.spawnSkillBanner(this.cameras.main.midPoint.x, this.cameras.main.midPoint.y - 70, '⚔️ PVP DUEL ARENA ACTIVE!');
     }
+    // Grant 3 seconds of invulnerability shield at match start
+    this.sim.getSnapshot().player.invulnTimer = 3.0;
 
     this.netSession.onPeerAttack((msg) => {
       // If PVP is enabled and the attacking peer's strike lands near local player:
       if (this.isPvp) {
+        if (msg.attackId && this.processedAttackIds.has(msg.attackId)) {
+          return;
+        }
+        if (msg.attackId) {
+          this.processedAttackIds.add(msg.attackId);
+          if (this.processedAttackIds.size > 250) {
+            const first = this.processedAttackIds.values().next().value;
+            if (first) this.processedAttackIds.delete(first);
+          }
+        }
+
         const p = this.sim.getSnapshot().player;
         if (p.action !== 'dead' && p.invulnTimer <= 0) {
           const dist = Math.hypot(p.x - msg.x, p.y - msg.y);
-          const hitRadius = msg.attackType.includes('arrow') ? 80 : (msg.attackType.includes('ultimate') ? 120 : 65);
+          const hitRadius = msg.attackType.includes('arrow') ? 85 : (msg.attackType.includes('ultimate') ? 130 : 68);
           if (dist <= hitRadius) {
             this.sim.damagePlayer(msg.damage);
             this.spawnDamageText(p.x, p.y - 12, msg.damage, true);
@@ -708,8 +744,10 @@ export class WorldScene extends Phaser.Scene {
       this.syncWorld(this.sim.getSnapshot());
     }
 
-    // Broadcast local player state to multiplayer peers
-    if (this.netSession) {
+    // Broadcast local player state to multiplayer peers (throttled to 20Hz / 50ms to prevent buffer exhaustion)
+    this.netBroadcastTimer = (this.netBroadcastTimer || 0) + deltaMs;
+    if (this.netSession && this.netBroadcastTimer >= 50) {
+      this.netBroadcastTimer = 0;
       const p = (latestSnapshot || this.sim.getSnapshot()).player;
       const heroKind = (p.kind === 'elvish' || p.kind === 'legacy' ? p.kind : 'crimson') as CharacterKind;
       this.netSession.broadcastState({
@@ -871,8 +909,18 @@ export class WorldScene extends Phaser.Scene {
         return;
       } else if (ev.type === 'actorDefeated' && ev.actorId === 'player') {
         const snap = this.sim.getSnapshot();
-        this.deathSummaryEl.textContent = `You survived until Wave ${snap.wave || 1}! Defeated ${snap.kills} slime${snap.kills === 1 ? '' : 's'}.`;
-        this.deathBannerEl.classList.add('visible');
+        if (this.isPvp) {
+          this.deathSummaryEl.textContent = 'Defeated in PVP Arena! Respawning in 3 seconds...';
+          this.deathBannerEl.classList.add('visible');
+          setTimeout(() => {
+            if (this.scene.isActive()) {
+              this.handleRespawn();
+            }
+          }, 3000);
+        } else {
+          this.deathSummaryEl.textContent = `You survived until Wave ${snap.wave || 1}! Defeated ${snap.kills} slime${snap.kills === 1 ? '' : 's'}.`;
+          this.deathBannerEl.classList.add('visible');
+        }
       } else if (ev.type === 'waveStart') {
         if (ev.isBossWave) {
           this.spawnSkillBanner(this.cameras.main.midPoint.x, this.cameras.main.midPoint.y - 70, `WARNING: BOSS WAVE ${ev.wave}!`);

@@ -18,6 +18,7 @@ export interface StartWorldOptions {
   lobbyRoomCode?: string;
   isPvp?: boolean;
   localPlayerName?: string;
+  isHost?: boolean;
   existingNet?: { peer: any; connections: any[] };
 }
 
@@ -331,6 +332,7 @@ class AppController {
         lobbyRoomCode: options?.lobbyRoomCode,
         isPvp: options?.isPvp,
         localPlayerName: options?.localPlayerName,
+        isHost: options?.isHost,
         existingNet: options?.existingNet
       };
 
@@ -358,6 +360,7 @@ class AppController {
 
     this.lobbyUI.onLaunch((lobby, hero, tiledMapData) => {
       const isBuiltin = !tiledMapData && (!lobby.mapId || lobby.mapId === 'builtin_meadow' || lobby.mapId === 'meadow');
+      const isHost = Boolean(this.lobbyUI?.client.localPlayer.isHost);
       const existingNet = this.lobbyUI?.client.detachNetwork();
       this.startWorld({
         tiledMapData,
@@ -367,6 +370,7 @@ class AppController {
         lobbyRoomCode: lobby.code,
         isPvp: lobby.gameMode === 'pvp',
         localPlayerName: localStorage.getItem('meadowblade_player_name') || 'Hero',
+        isHost,
         existingNet
       });
     });

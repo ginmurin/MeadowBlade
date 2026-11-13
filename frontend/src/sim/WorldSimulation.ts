@@ -7,6 +7,7 @@ import type {
   EnemyKind,
   MapSpawnData,
   PlayerInput,
+  Point2D,
   SimEvent,
   WorldSnapshot
 } from './types';
@@ -211,12 +212,24 @@ export class WorldSimulation {
   private waveCountdown = 0;
   private waveTotalEnemies = 0;
   private activeBoss: SimActor | null = null;
+  private spawnPoint: Point2D;
 
-  constructor(map: MapSpawnData, playerKind: CharacterKind = 'crimson', waveMode = false) {
+  constructor(
+    map: MapSpawnData,
+    playerKind: CharacterKind = 'crimson',
+    waveMode = false,
+    spawnOffset?: Point2D,
+    initialFacing: Direction8 = 'S'
+  ) {
     this.map = map;
     this.waveMode = waveMode;
+    this.spawnPoint = spawnOffset
+      ? { x: map.playerSpawn.x + spawnOffset.x, y: map.playerSpawn.y + spawnOffset.y }
+      : { x: map.playerSpawn.x, y: map.playerSpawn.y };
+
     const profile = HERO_PROFILES[playerKind];
-    this.player = this.createActor('player', playerKind, true, map.playerSpawn.x, map.playerSpawn.y, profile);
+    this.player = this.createActor('player', playerKind, true, this.spawnPoint.x, this.spawnPoint.y, profile);
+    this.player.facing = initialFacing;
     this.initWorldObjects();
 
     if (this.waveMode) {
@@ -513,8 +526,8 @@ export class WorldSimulation {
 
   public respawnPlayer(): void {
     const p = this.player;
-    p.x = this.map.playerSpawn.x;
-    p.y = this.map.playerSpawn.y;
+    p.x = this.spawnPoint.x;
+    p.y = this.spawnPoint.y;
     p.vx = 0;
     p.vy = 0;
     p.hp = p.maxHp;
@@ -950,8 +963,14 @@ export class WorldSimulation {
   }
 
   public damagePlayer(amount: number): void {
-    if (this.player.action === 'dead') return;
+    if (this.player.action === 'dead' || this.player.invulnTimer > 0) return;
     this.player.hp = Math.max(0, this.player.hp - amount);
+    this.player.invulnTimer = 0.55;
+    if (this.player.action !== 'dash' && this.player.action !== 'roll') {
+      this.player.action = 'hit';
+      this.player.actionElapsed = 0;
+      this.player.actionDuration = 0.25;
+    }
     if (this.player.hp <= 0) {
       this.player.action = 'dead';
       this.events.push({ type: 'actorDefeated', actorId: 'player', x: this.player.x, y: this.player.y });
