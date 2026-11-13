@@ -1,0 +1,42 @@
+{
+  "Basic_Attack": {
+    "south": 16,
+    "south-east": 16,
+    "east": 16,
+    "north-east": 16,
+    "north": 16,
+    "north-west": 16,
+    "west": 16,
+    "south-west": 16
+  },
+  "Death": {
+    "south": 25,
+    "south-east": 25,
+    "east": 25,
+    "north-east": 25,
+    "north": 24,
+    "north-west": 25,
+    "west": 25,
+    "south-west": 25
+  },
+  "Idle": {
+    "south": 12,
+    "south-east": 16,
+    "east": 16,
+    "north-east": 14,
+    "north": 16,
+    "north-west": 14,
+    "west": 16,
+    "south-west": 16
+  },
+  "Move": {
+    "south": 21,
+    "south-east": 17,
+    "east": 16,
+    "north-east": 17,
+    "north": 11,
+    "north-west": 17,
+    "west": 16,
+    "south-west": 17
+  }
+}

@@ -1,0 +1,1314 @@
+﻿<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Meadowblade — Top-Down Action RPG & World Builder</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #090d10;
+        font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        color: #eef2f6;
+        user-select: none;
+      }
+      #app {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      }
+            #game-root {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        z-index: 1;
+        visibility: hidden;
+        pointer-events: none;
+      }
+      #game-root canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      canvas {
+        image-rendering: pixelated;
+        image-rendering: crisp-edges;
+      }
+
+      /* -------------------------------------------------- */
+      /* MAIN MENU */
+      /* -------------------------------------------------- */
+      #menu-root {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(circle at center, #17242e 0%, #090d10 80%);
+        z-index: 100;
+      }
+      .main-menu-screen {
+        width: 100%;
+        max-width: 620px;
+        padding: 32px 24px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+      }
+      .menu-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 999px;
+        background: rgba(251, 191, 36, 0.12);
+        border: 1px solid rgba(251, 191, 36, 0.35);
+        color: #fbbf24;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        margin-bottom: 12px;
+      }
+      .menu-title {
+        font-size: 46px;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        background: linear-gradient(180deg, #ffffff 20%, #94a3b8 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-shadow: 0 4px 20px rgba(0, 0, 0, 0.7);
+        margin-bottom: 6px;
+      }
+      .menu-tagline {
+        font-size: 14px;
+        color: #94a3b8;
+        margin-bottom: 32px;
+      }
+      .menu-nav-box {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .menu-btn {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        width: 100%;
+        padding: 14px 20px;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        color: #f8fafc;
+        cursor: pointer;
+        text-align: left;
+        transition: transform 120ms, background 120ms, border-color 120ms;
+      }
+      .menu-btn:hover {
+        transform: translateY(-2px);
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(255, 255, 255, 0.28);
+      }
+      .menu-btn.primary {
+        background: linear-gradient(135deg, rgba(225, 29, 72, 0.35), rgba(225, 29, 72, 0.15));
+        border-color: rgba(244, 63, 94, 0.6);
+      }
+      .menu-btn.primary:hover {
+        background: linear-gradient(135deg, rgba(225, 29, 72, 0.55), rgba(225, 29, 72, 0.25));
+        border-color: #f43f5e;
+      }
+      .menu-btn.accent {
+        background: linear-gradient(135deg, rgba(16, 185, 129, 0.28), rgba(16, 185, 129, 0.1));
+        border-color: rgba(52, 211, 153, 0.5);
+      }
+      .menu-btn.accent:hover {
+        background: linear-gradient(135deg, rgba(16, 185, 129, 0.45), rgba(16, 185, 129, 0.18));
+        border-color: #34d399;
+      }
+      .menu-btn .btn-icon {
+        font-size: 26px;
+      }
+      .menu-btn .btn-text strong {
+        display: block;
+        font-size: 16px;
+        font-weight: 700;
+        margin-bottom: 2px;
+      }
+      .menu-btn .btn-text small {
+        font-size: 12px;
+        color: #94a3b8;
+      }
+      .menu-footer {
+        margin-top: 36px;
+        font-size: 11px;
+        color: #64748b;
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+
+      /* -------------------------------------------------- */
+      /* HUD (IN-GAME) */
+      /* -------------------------------------------------- */
+      #hud {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        z-index: 20;
+      }
+      .hud-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+      }
+      .status-card {
+        background: rgba(13, 18, 22, 0.82);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 10px;
+        padding: 10px 14px;
+        min-width: 245px;
+        backdrop-filter: blur(6px);
+        pointer-events: auto;
+      }
+      .hero-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 6px;
+      }
+      .hero-name {
+        font-size: 13px;
+        font-weight: 700;
+        color: #f8fafc;
+      }
+      .hero-role {
+        font-size: 11px;
+        color: #94a3b8;
+      }
+      .bar-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 5px;
+      }
+      .bar-label {
+        width: 28px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        color: #b7c4cf;
+      }
+      .bar-track {
+        flex: 1;
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.12);
+        overflow: hidden;
+      }
+      .bar-fill {
+        height: 100%;
+        width: 100%;
+        transition: width 80ms linear;
+      }
+      .bar-fill.hp {
+        background: linear-gradient(90deg, #dc2626, #f87171);
+      }
+      .bar-fill.stamina {
+        background: linear-gradient(90deg, #059669, #34d399);
+      }
+      .bar-fill.mp {
+        background: linear-gradient(90deg, #2563eb, #60a5fa);
+      }
+      .bar-fill.rage {
+        background: linear-gradient(90deg, #ea580c, #f97316);
+      }
+      .bar-fill.rage.ready {
+        background: linear-gradient(90deg, #dc2626, #ff2222);
+        box-shadow: 0 0 10px rgba(255, 34, 34, 0.85);
+        animation: pulseRage 0.6s infinite alternate;
+      }
+      @keyframes pulseRage {
+        from { opacity: 0.8; }
+        to { opacity: 1; filter: brightness(1.35); }
+      }
+      .bar-fill.exp {
+        background: linear-gradient(90deg, #d97706, #fbbf24);
+      }
+      .stat-upgrade-panel {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        pointer-events: auto;
+      }
+      .stat-points-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 11px;
+      }
+      .stat-points-badge {
+        color: #fbbf24;
+        font-weight: 700;
+        text-shadow: 0 0 8px rgba(251, 191, 36, 0.5);
+      }
+      .stat-upgrade-row {
+        display: flex;
+        gap: 6px;
+      }
+      .stat-plus-btn {
+        flex: 1;
+        padding: 5px 6px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 700;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        transition: transform 80ms, filter 120ms;
+        color: #fff;
+        pointer-events: auto;
+      }
+      .stat-plus-btn:hover {
+        transform: translateY(-1px);
+        filter: brightness(1.2);
+      }
+      .stat-plus-btn:active {
+        transform: translateY(1px);
+      }
+      .stat-plus-btn.hp-btn {
+        background: rgba(220, 38, 38, 0.45);
+        border: 1px solid rgba(239, 68, 68, 0.7);
+      }
+      .stat-plus-btn.stm-btn {
+        background: rgba(5, 150, 105, 0.45);
+        border: 1px solid rgba(52, 211, 153, 0.7);
+      }
+      .stat-plus-btn.mp-btn {
+        background: rgba(37, 99, 235, 0.45);
+        border: 1px solid rgba(96, 165, 250, 0.7);
+      }
+      .bar-value {
+        width: 52px;
+        text-align: right;
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+        color: #dce5ec;
+      }
+      .hud-right {
+        display: flex;
+        align-items: stretch;
+        gap: 10px;
+        pointer-events: auto;
+      }
+      .hud-btn {
+        background: rgba(13, 18, 22, 0.82);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 10px;
+        padding: 10px 14px;
+        color: #e2e8f0;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        backdrop-filter: blur(6px);
+        transition: border-color 120ms, background 120ms;
+      }
+      .hud-btn:hover {
+        background: rgba(30, 41, 59, 0.9);
+        border-color: rgba(251, 191, 36, 0.55);
+      }
+      .score-card {
+        background: rgba(13, 18, 22, 0.82);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 10px;
+        padding: 10px 14px;
+        text-align: right;
+        backdrop-filter: blur(6px);
+      }
+      .score-title {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #93a4b3;
+      }
+      .score-value {
+        font-size: 20px;
+        font-weight: 700;
+        color: #fbbf24;
+      }
+      .hud-bottom {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .controls-pill {
+        background: rgba(13, 18, 22, 0.78);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 12px;
+        color: #cbd5e1;
+      }
+      .controls-pill kbd {
+        display: inline-block;
+        padding: 1px 6px;
+        margin: 0 2px;
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.14);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        font-family: inherit;
+        font-size: 11px;
+        color: #fff;
+      }
+      .ability-bar {
+        display: flex;
+        gap: 8px;
+        pointer-events: auto;
+      }
+      .ability-slot {
+        position: relative;
+        background: rgba(13, 18, 22, 0.86);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 8px;
+        padding: 6px 10px;
+        min-width: 96px;
+        overflow: hidden;
+        backdrop-filter: blur(6px);
+      }
+      .ability-slot.ready {
+        border-color: rgba(52, 211, 153, 0.55);
+      }
+      .ability-slot.guard.ready {
+        border-color: rgba(56, 189, 248, 0.65);
+      }
+      .ability-slot.skill.ready {
+        border-color: rgba(251, 191, 36, 0.65);
+      }
+      .ability-slot.ult.ready {
+        border-color: rgba(244, 63, 94, 0.7);
+      }
+      .ability-slot.throw.ready {
+        border-color: rgba(249, 115, 22, 0.65);
+      }
+      .ability-cd-fill {
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 0%;
+        background: rgba(255, 255, 255, 0.08);
+        pointer-events: none;
+      }
+      .ability-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 11px;
+        color: #94a3b8;
+        margin-bottom: 2px;
+      }
+      .ability-key {
+        background: rgba(255, 255, 255, 0.16);
+        color: #fff;
+        padding: 1px 5px;
+        border-radius: 4px;
+        font-weight: 700;
+      }
+      .ability-name {
+        font-size: 12px;
+        font-weight: 700;
+        color: #f8fafc;
+      }
+      .ability-status {
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+      }
+      .ability-status.ready {
+        color: #34d399;
+      }
+      .ability-status.cooling {
+        color: #fbbf24;
+      }
+
+      /* -------------------------------------------------- */
+      /* SHARED UI & FORM STYLES                            */
+      /* -------------------------------------------------- */
+      .ed-btn {
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        color: #e2e8f0;
+        border-radius: 6px;
+        padding: 6px 12px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        transition: all 0.15s ease;
+      }
+      .ed-btn:hover {
+        background: rgba(255, 255, 255, 0.14);
+      }
+      .ed-btn.primary {
+        background: #2563eb;
+        border-color: #3b82f6;
+        color: #fff;
+      }
+      .ed-btn.primary:hover {
+        background: #1d4ed8;
+      }
+      .ed-btn.success {
+        background: #059669;
+        border-color: #10b981;
+        color: #fff;
+      }
+      .ed-btn.success:hover {
+        background: #047857;
+      }
+      .ed-btn.danger {
+        background: rgba(239, 68, 68, 0.2);
+        border-color: rgba(239, 68, 68, 0.4);
+        color: #f87171;
+      }
+      .ed-btn.danger:hover {
+        background: rgba(239, 68, 68, 0.35);
+        border-color: #ef4444;
+      }
+      .ed-btn.ghost {
+        background: transparent;
+      }
+      .ed-btn.small {
+        padding: 4px 8px;
+        font-size: 11px;
+      }
+      .ed-btn.full-width {
+        width: 100%;
+        justify-content: center;
+      }
+      .file-btn {
+        display: inline-flex;
+        align-items: center;
+        cursor: pointer;
+      }
+      .ed-input,
+      .ed-select {
+        width: 100%;
+        background: #090d10;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        color: #e2e8f0;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 13px;
+        outline: none;
+      }
+      .ed-input:focus,
+      .ed-select:focus {
+        border-color: #3b82f6;
+      }
+      .form-section {
+        margin-bottom: 16px;
+      }
+      .form-label {
+        display: block;
+        font-size: 13px;
+        font-weight: 700;
+        color: #94a3b8;
+        margin-bottom: 6px;
+      }
+      .form-sublabel {
+        display: block;
+        font-size: 11px;
+        color: #64748b;
+        margin-bottom: 4px;
+      }
+      .form-row {
+        margin-bottom: 10px;
+      }
+      .divider {
+        display: flex;
+        align-items: center;
+        text-align: center;
+        color: #64748b;
+        font-size: 11px;
+        font-weight: 700;
+        margin: 16px 0;
+      }
+      .divider::before,
+      .divider::after {
+        content: '';
+        flex: 1;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .divider span {
+        padding: 0 10px;
+      }
+      /* -------------------------------------------------- */
+      /* MULTIPLAYER LOBBY */
+      /* -------------------------------------------------- */
+      #lobby-root {
+        position: absolute;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(circle at center, #16212b 0%, #090d10 80%);
+        z-index: 60;
+      }
+      .lobby-screen,
+      .lobby-room-screen {
+        width: 100%;
+        max-width: 920px;
+        height: 84%;
+        background: #131a21;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 16px;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65);
+        overflow: hidden;
+      }
+      .lobby-header,
+      .room-header {
+        padding: 14px 20px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: #18222c;
+      }
+      .lobby-body-grid,
+      .room-grid {
+        flex: 1;
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        overflow: hidden;
+      }
+      .lobby-panel,
+      .room-players-panel,
+      .room-chat-panel {
+        padding: 16px 20px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .lobby-panel:first-child,
+      .room-players-panel {
+        border-right: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .panel-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+      .lobbies-list {
+        flex: 1;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .lobby-card {
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        padding: 12px 14px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .lobby-card-title {
+        font-size: 14px;
+        font-weight: 700;
+        color: #fff;
+      }
+      .lobby-card-sub {
+        font-size: 11px;
+        color: #94a3b8;
+        margin-top: 3px;
+      }
+      .room-code-tag {
+        color: #fbbf24;
+        font-family: monospace;
+      }
+      .player-count-pill {
+        font-size: 11px;
+        background: rgba(0, 0, 0, 0.35);
+        padding: 3px 8px;
+        border-radius: 999px;
+        color: #94a3b8;
+        margin-right: 8px;
+      }
+      .form-section {
+        background: rgba(0, 0, 0, 0.25);
+        border-radius: 10px;
+        padding: 14px;
+      }
+      .form-label {
+        font-size: 13px;
+        font-weight: 700;
+        margin-bottom: 8px;
+        display: block;
+      }
+      .form-sublabel {
+        font-size: 11px;
+        color: #94a3b8;
+        display: block;
+        margin-bottom: 4px;
+      }
+      .divider {
+        text-align: center;
+        margin: 14px 0;
+        position: relative;
+      }
+      .divider span {
+        background: #131a21;
+        padding: 0 10px;
+        font-size: 11px;
+        color: #64748b;
+      }
+      .join-code-row,
+      .collab-input-row,
+      .chat-input-row {
+        display: flex;
+        gap: 8px;
+      }
+      .ed-input {
+        flex: 1;
+        background: rgba(0, 0, 0, 0.4);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 6px;
+        padding: 8px 12px;
+        color: #fff;
+        font-size: 13px;
+      }
+      .empty-hint {
+        font-size: 13px;
+        color: #64748b;
+        text-align: center;
+        margin-top: 40px;
+        line-height: 1.5;
+      }
+
+      /* Inside Room View */
+      .players-slot-list {
+        flex: 1;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .player-slot-card {
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        padding: 10px 14px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .player-slot-card.ready {
+        border-color: rgba(52, 211, 153, 0.5);
+        background: rgba(52, 211, 153, 0.06);
+      }
+      .player-slot-card.local {
+        border-left: 3px solid #fbbf24;
+      }
+      .slot-avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        background-color: rgba(0, 0, 0, 0.35);
+        background-repeat: no-repeat;
+        image-rendering: pixelated;
+      }
+      .slot-avatar.hero-crimson {
+        background-image: url('assets/characters/crimson/Idle%20Default.png');
+        background-size: 216px 180px;
+      }
+      .slot-avatar.hero-elvish {
+        background-image: url('assets/characters/elvish/Base.png');
+        background-size: 36px 180px;
+      }
+      .slot-avatar.hero-legacy {
+        background-image: url('assets/characters/legacy/Idle%20Default.png');
+        background-size: 216px 180px;
+      }
+      .slot-info {
+        flex: 1;
+      }
+      .slot-name {
+        font-size: 13px;
+        font-weight: 700;
+      }
+      .slot-hero {
+        font-size: 11px;
+        color: #94a3b8;
+      }
+      .slot-status {
+        font-size: 11px;
+        font-weight: 700;
+        padding: 3px 8px;
+        border-radius: 4px;
+      }
+      .slot-status.ready {
+        background: rgba(52, 211, 153, 0.2);
+        color: #34d399;
+      }
+      .slot-status.pending {
+        background: rgba(251, 191, 36, 0.2);
+        color: #fbbf24;
+      }
+      .local-hero-select {
+        margin-top: 14px;
+        padding-top: 12px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .local-hero-select .label {
+        font-size: 11px;
+        color: #94a3b8;
+        margin-bottom: 6px;
+      }
+      .hero-pick-row {
+        display: flex;
+        gap: 6px;
+      }
+      .hero-btn {
+        flex: 1;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 6px;
+        padding: 6px;
+        color: #e2e8f0;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .hero-btn.active {
+        background: #2563eb;
+        border-color: #60a5fa;
+        color: #fff;
+      }
+      .chat-log {
+        flex: 1;
+        background: rgba(0, 0, 0, 0.35);
+        border-radius: 8px;
+        padding: 10px;
+        overflow-y: auto;
+        font-size: 12px;
+        margin: 10px 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .chat-msg.system {
+        color: #94a3b8;
+        font-style: italic;
+      }
+      .room-action-bar {
+        display: flex;
+        gap: 10px;
+        margin-top: 12px;
+      }
+      .ed-btn.big {
+        padding: 12px 20px;
+        font-size: 14px;
+      }
+      .waiting-host-hint {
+        flex: 1;
+        text-align: center;
+        font-size: 12px;
+        color: #94a3b8;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      /* Modals */
+      .ed-modal-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.7);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 100;
+      }
+      .ed-modal {
+        background: #141c23;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 12px;
+        padding: 24px;
+        max-width: 440px;
+        width: 90%;
+        text-align: center;
+      }
+      .ed-modal h2 {
+        font-size: 18px;
+        margin-bottom: 6px;
+      }
+      .ed-modal p {
+        font-size: 13px;
+        color: #94a3b8;
+        margin-bottom: 14px;
+      }
+      .banner {
+        position: absolute;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(8, 11, 14, 0.72);
+        backdrop-filter: blur(5px);
+        pointer-events: auto;
+        z-index: 120;
+      }
+      .banner.visible {
+        display: flex;
+      }
+      .banner-box {
+        background: #141c22;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 14px;
+        padding: 24px 32px;
+        text-align: center;
+        box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
+      }
+      .select-modal {
+        max-width: 820px;
+        width: 92%;
+        background: #131a20;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 16px;
+        padding: 28px;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65);
+      }
+      .settings-pill-btn {
+        flex: 1;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 6px;
+        padding: 7px 10px;
+        color: #94a3b8;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 120ms ease;
+      }
+      .settings-pill-btn:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: #f8fafc;
+      }
+      .settings-pill-btn.active {
+        background: #2563eb;
+        border-color: #60a5fa;
+        color: #fff;
+        box-shadow: 0 0 10px rgba(37, 99, 235, 0.4);
+      }
+      .hero-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+        margin-top: 16px;
+      }
+      .hero-card {
+        background: rgba(255, 255, 255, 0.04);
+        border: 2px solid rgba(255, 255, 255, 0.12);
+        border-radius: 12px;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        cursor: pointer;
+        transition: transform 140ms, border-color 140ms;
+      }
+      .hero-card:hover {
+        transform: translateY(-3px);
+        border-color: rgba(251, 191, 36, 0.7);
+      }
+      .hero-card.active {
+        border-color: #fbbf24;
+        background: rgba(251, 191, 36, 0.08);
+      }
+      .hero-sprite-box {
+        width: 84px;
+        height: 84px;
+        border-radius: 12px;
+        background: radial-gradient(circle, rgba(255, 255, 255, 0.1), rgba(0, 0, 0, 0.25));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 12px;
+        overflow: hidden;
+      }
+      .hero-sprite-preview {
+        width: 64px;
+        height: 64px;
+        transform: scale(2.1);
+        background-repeat: no-repeat;
+        image-rendering: pixelated;
+      }
+      .pick-btn {
+        width: 100%;
+        background: #e11d48;
+        color: #fff;
+        border: none;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+    
+      /* Toast Notification */
+      .toast-container {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        z-index: 99999;
+        pointer-events: none;
+      }
+      .toast-item {
+        background: #182430;
+        border: 1px solid #38bdf8;
+        color: #f8fafc;
+        border-radius: 8px;
+        padding: 10px 18px;
+        font-size: 13px;
+        font-weight: 600;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+        pointer-events: auto;
+        animation: toastIn 200ms ease-out;
+      }
+      @keyframes toastIn {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      .toast-fade-out {
+        opacity: 0;
+        transform: translateY(-8px);
+        transition: opacity 300ms, transform 300ms;
+      }
+
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <!-- 1. Main Menu View -->
+      <div id="menu-root"></div>
+
+      <!-- 2. Phaser Canvas Root -->
+      <div id="game-root"></div>
+
+      <!-- 3. In-Game HUD -->
+      <div id="hud" style="display:none;">
+        <div class="hud-top">
+          <div class="status-card" style="min-width: 260px;">
+            <div class="hero-header">
+              <div>
+                <span id="hero-name" class="hero-name">Crimson Red</span>
+                <span id="hero-role" class="hero-role">Blademaiden</span>
+              </div>
+              <span id="level-badge" style="background: rgba(251, 191, 36, 0.2); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.4); font-size: 11px; font-weight: 800; padding: 2px 7px; border-radius: 10px;">LV 1</span>
+            </div>
+            <div class="bar-row">
+              <span class="bar-label" style="color: #f87171;">HP</span>
+              <div class="bar-track"><div id="hp-fill" class="bar-fill hp"></div></div>
+              <span id="hp-text" class="bar-value">110/110</span>
+            </div>
+            <div class="bar-row">
+              <span class="bar-label" style="color: #34d399;">STM</span>
+              <div class="bar-track"><div id="stm-fill" class="bar-fill stamina"></div></div>
+              <span id="stm-text" class="bar-value">100/100</span>
+            </div>
+            <div class="bar-row">
+              <span class="bar-label" style="color: #60a5fa;">MP</span>
+              <div class="bar-track"><div id="mp-fill" class="bar-fill mp"></div></div>
+              <span id="mp-text" class="bar-value">100/100</span>
+            </div>
+            <div id="rage-row" class="bar-row" style="display: none;">
+              <span class="bar-label" style="color: #f97316;">RAGE</span>
+              <div class="bar-track"><div id="rage-fill" class="bar-fill rage" style="width: 0%;"></div></div>
+              <span id="rage-text" class="bar-value" style="color: #fdba74;">0/100</span>
+            </div>
+            <div class="bar-row" style="margin-top: 2px;">
+              <span class="bar-label" style="color: #fbbf24; font-size: 10px;">EXP</span>
+              <div class="bar-track" style="height: 5px;"><div id="exp-fill" class="bar-fill exp" style="width: 0%;"></div></div>
+              <span id="exp-text" class="bar-value" style="font-size: 10px; color: #94a3b8;">0/40</span>
+            </div>
+
+            <!-- Stat Upgrade Panel (Visible when points are available) -->
+            <div id="stat-points-panel" class="stat-upgrade-panel" style="display:none;">
+              <div class="stat-points-header">
+                <span id="stat-points-count" class="stat-points-badge">+1 Point Available</span>
+                <span style="font-size: 10px; color: #94a3b8;">Click stat to upgrade:</span>
+              </div>
+              <div class="stat-upgrade-row">
+                <button id="upgrade-hp-btn" class="stat-plus-btn hp-btn" type="button" title="Upgrade Max HP (+25)">+ HP</button>
+                <button id="upgrade-stm-btn" class="stat-plus-btn stm-btn" type="button" title="Upgrade Max Stamina (+20)">+ STM</button>
+                <button id="upgrade-mp-btn" class="stat-plus-btn mp-btn" type="button" title="Upgrade Max Mana (+25)">+ MP</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Wave & Boss Status Center Card -->
+          <div id="hud-center-card" style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+            <div id="wave-card" class="score-card" style="min-width:180px; text-align:center; padding:6px 16px; border-color:rgba(251, 191, 36, 0.4);">
+              <div id="wave-title" class="score-title" style="color:#fbbf24; font-weight:700; letter-spacing:0.1em;">WAVE 1</div>
+              <div id="wave-subtitle" style="font-size:12px; color:#cbd5e1; margin-top:2px;">Slimes Left: 4</div>
+            </div>
+
+            <!-- Boss Health Bar (Visible during Boss Waves) -->
+            <div id="boss-hud-bar" class="status-card" style="display:none; min-width:280px; border-color:#ef4444; background:rgba(20, 10, 15, 0.9);">
+              <div class="hero-header">
+                <span id="boss-name" class="hero-name" style="color:#f87171; font-weight:800; letter-spacing:0.05em;">KING GREEN SLIME</span>
+                <span class="hero-role" style="color:#fca5a5; font-size:11px;">BOSS</span>
+              </div>
+              <div class="bar-row">
+                <span class="bar-label" style="color:#f87171;">HP</span>
+                <div class="bar-track" style="height:10px;"><div id="boss-hp-fill" class="bar-fill" style="background:linear-gradient(90deg, #dc2626, #f87171); width:100%; height:100%;"></div></div>
+                <span id="boss-hp-text" class="bar-value" style="color:#fca5a5;">450/450</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="hud-right">
+            <div id="in-game-realm-card" class="score-card" style="min-width:130px; text-align:center;">
+              <div class="score-title">Current Realm</div>
+              <div id="in-game-realm-name" class="score-value" style="font-size:13px; font-weight:700; color:#38bdf8;">Green Meadow</div>
+            </div>
+            <button id="hud-menu-btn" class="hud-btn">← Menu (Esc)</button>
+            <button id="switch-hero-btn" class="hud-btn">Switch Hero (C)</button>
+            <button id="hud-settings-btn" class="hud-btn">Settings (O)</button>
+            <div class="score-card">
+              <div class="score-title">Defeated</div>
+              <div id="kills-text" class="score-value">0</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="hud-bottom">
+          <div class="controls-pill">
+            <kbd>WASD</kbd> Move/Face &nbsp;·&nbsp;
+            <kbd>J</kbd> Slash &nbsp;·&nbsp;
+            <kbd>K</kbd> Bow &nbsp;·&nbsp;
+            <kbd>Space</kbd> Roll &nbsp;·&nbsp;
+            <kbd>Shift</kbd> Dash &nbsp;·&nbsp;
+            <kbd>Q</kbd> Guard &nbsp;·&nbsp;
+            <kbd>E</kbd> Skill &nbsp;·&nbsp;
+            <kbd>R</kbd> Ult &nbsp;·&nbsp;
+            <kbd>F</kbd> Throw
+          </div>
+
+          <div class="ability-bar">
+            <div id="guard-slot" class="ability-slot guard ready">
+              <div id="guard-cd-fill" class="ability-cd-fill"></div>
+              <div class="ability-top">
+                <span>GUARD</span>
+                <span class="ability-key">Q</span>
+              </div>
+              <div class="ability-name">Parry / Guard</div>
+              <div id="guard-status" class="ability-status ready">Ready</div>
+            </div>
+
+            <div id="skill-slot" class="ability-slot skill ready">
+              <div id="skill-cd-fill" class="ability-cd-fill"></div>
+              <div class="ability-top">
+                <span>SKILL</span>
+                <span class="ability-key">E</span>
+              </div>
+              <div id="skill-name" class="ability-name">Crimson Thrust</div>
+              <div id="skill-status" class="ability-status ready">Ready</div>
+            </div>
+
+            <div id="ult-slot" class="ability-slot ult ready">
+              <div id="ult-cd-fill" class="ability-cd-fill"></div>
+              <div class="ability-top">
+                <span>ULTIMATE</span>
+                <span class="ability-key">R</span>
+              </div>
+              <div id="ult-name" class="ability-name">Crimson Ignition</div>
+              <div id="ult-status" class="ability-status ready">Ready</div>
+            </div>
+
+            <div id="throw-slot" class="ability-slot throw ready">
+              <div id="throw-cd-fill" class="ability-cd-fill"></div>
+              <div class="ability-top">
+                <span>THROW</span>
+                <span class="ability-key">F</span>
+              </div>
+              <div id="throw-name" class="ability-name">Kunai Fan</div>
+              <div id="throw-status" class="ability-status ready">Ready</div>
+            </div>
+
+            <div id="dash-slot" class="ability-slot ready">
+              <div id="dash-cd-fill" class="ability-cd-fill"></div>
+              <div class="ability-top">
+                <span>EVADE</span>
+                <span class="ability-key">Shift</span>
+              </div>
+              <div class="ability-name">Dash</div>
+              <div id="dash-status" class="ability-status ready">Ready</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. Multiplayer Lobby View -->
+      <div id="lobby-root"></div>
+
+      <!-- Character Selection Modal -->
+      <div id="char-select-modal" class="banner">
+        <div class="select-modal" style="position:relative;">
+          <button id="close-hero-select-btn" class="ed-btn ghost" style="position:absolute; top:14px; right:16px; font-size:13px; z-index:10;">✕ Close</button>
+          <div class="select-header" style="text-align:center;">
+            <h1>Choose Your Hero</h1>
+            <p style="color:#94a3b8; font-size:13px; margin-top:4px;">Each hero has unique stats and signature [E] skill.</p>
+          </div>
+          <div class="hero-grid">
+            <div class="hero-card active" data-hero="crimson">
+              <div class="hero-sprite-box">
+                <div class="hero-sprite-preview" style="background-image: url('assets/characters/crimson/Idle%20Default.png')"></div>
+              </div>
+              <h3>Crimson Red</h3>
+              <span style="color:#fbbf24; font-size:11px; font-weight:700;">Blademaiden</span>
+              <p style="font-size:12px; color:#94a3b8; margin:8px 0;">[E] Crimson Thrust (5.5s CD)<br />Piercing flame lunge dealing 48 DMG.</p>
+              <button class="pick-btn">Select Crimson</button>
+            </div>
+
+            <div class="hero-card" data-hero="elvish">
+              <div class="hero-sprite-box">
+                <div class="hero-sprite-preview" style="background-image: url('assets/characters/elvish/Base.png')"></div>
+              </div>
+              <h3>Elvish Ranger</h3>
+              <span style="color:#fbbf24; font-size:11px; font-weight:700;">Sylph Archer</span>
+              <p style="font-size:12px; color:#94a3b8; margin:8px 0;">[E] Arrow Volley (4.5s CD)<br />3 radiant arrows fan spread (30 DMG each).</p>
+              <button class="pick-btn">Select Elvish</button>
+            </div>
+
+            <div class="hero-card" data-hero="legacy">
+              <div class="hero-sprite-box">
+                <div class="hero-sprite-preview" style="background-image: url('assets/characters/legacy/Idle%20Default.png')"></div>
+              </div>
+              <h3>Legacy Knight</h3>
+              <span style="color:#fbbf24; font-size:11px; font-weight:700;">Iron Vanguard</span>
+              <p style="font-size:12px; color:#94a3b8; margin:8px 0;">[E] Whirlwind (6.5s CD)<br />360° spinning cleave dealing 55 DMG.</p>
+              <button class="pick-btn">Select Legacy</button>
+            </div>
+          </div>
+          <div style="text-align:center; margin-top:18px;">
+            <button id="back-hero-select-btn" class="ed-btn ghost" style="padding:8px 24px;">← Back to Menu</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Settings & Accessibility Modal -->
+      <div id="settings-modal" class="banner">
+        <div class="select-modal" style="max-width: 540px; position: relative;">
+          <button id="close-settings-btn" class="ed-btn ghost" style="position: absolute; top: 14px; right: 16px; font-size: 13px; z-index: 10;">✕ Close</button>
+          <div class="select-header" style="text-align: left; margin-bottom: 20px;">
+            <h1 style="font-size: 20px; font-weight: 700; color: #f8fafc; margin-bottom: 4px;">Game & Accessibility Settings</h1>
+            <p style="color: #94a3b8; font-size: 12px; margin: 0;">Configure photosensitivity protection and combat controls.</p>
+          </div>
+
+          <!-- Section 1: Screen Flash / Photosensitivity -->
+          <div class="settings-group" style="background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <label style="font-size: 13px; font-weight: 700; color: #f8fafc;">Screen Flashes (Photosensitivity / Epilepsy)</label>
+              <span id="flash-mode-badge" style="font-size: 11px; font-weight: 700; color: #34d399; background: rgba(52, 211, 153, 0.15); border: 1px solid rgba(52, 211, 153, 0.4); padding: 2px 8px; border-radius: 6px;">EPILEPSY SAFE</span>
+            </div>
+            <p style="font-size: 11px; color: #94a3b8; margin-bottom: 10px; line-height: 1.4;">
+              Protects against photosensitive seizures and visual discomfort by eliminating or toning down bright full-screen color flashes across combat, boss waves, and level ups.
+            </p>
+            <div class="settings-pill-row" style="display: flex; gap: 8px;">
+              <button type="button" class="settings-pill-btn active" data-setting="flash" data-value="off">Disabled (Epilepsy Safe)</button>
+              <button type="button" class="settings-pill-btn" data-setting="flash" data-value="soft">Reduced (Soft Tint)</button>
+              <button type="button" class="settings-pill-btn" data-setting="flash" data-value="full">Standard (Full)</button>
+            </div>
+          </div>
+
+          <!-- Section 2: Combat & Facing Controls -->
+          <div class="settings-group" style="background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <label style="font-size: 13px; font-weight: 700; color: #f8fafc;">Combat & Aiming Controls</label>
+              <span style="font-size: 11px; font-weight: 700; color: #60a5fa; background: rgba(96, 165, 250, 0.15); border: 1px solid rgba(96, 165, 250, 0.4); padding: 2px 8px; border-radius: 6px;">KEYBOARD ONLY</span>
+            </div>
+            <p style="font-size: 11px; color: #94a3b8; margin-bottom: 8px; line-height: 1.4;">
+              Attacks and character facing are driven entirely by keyboard controls. Mouse clicks on the game field will not attack or alter your character's facing direction.
+            </p>
+            <div style="font-size: 11px; color: #cbd5e1; background: rgba(0, 0, 0, 0.3); padding: 8px 10px; border-radius: 6px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+              <div><strong>WASD / Arrows:</strong> Move & Face</div>
+              <div><strong>J:</strong> Melee Attack</div>
+              <div><strong>K:</strong> Bow & Arrow</div>
+              <div><strong>Space / Shift:</strong> Roll / Dash</div>
+              <div><strong>E:</strong> Core Skill</div>
+              <div><strong>R:</strong> Ultimate Skill</div>
+              <div><strong>Q:</strong> Guard / Parry</div>
+              <div><strong>F:</strong> Tactical Throw</div>
+            </div>
+          </div>
+
+          <!-- Section 3: Screen Shake -->
+          <div class="settings-group" style="background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; padding: 14px 16px; margin-bottom: 18px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <label style="font-size: 13px; font-weight: 700; color: #f8fafc;">Camera Shake Intensity</label>
+            </div>
+            <p style="font-size: 11px; color: #94a3b8; margin-bottom: 10px; line-height: 1.4;">
+              Adjusts or turns off camera vibration during heavy explosions and boss abilities.
+            </p>
+            <div class="settings-pill-row" style="display: flex; gap: 8px;">
+              <button type="button" class="settings-pill-btn" data-setting="shake" data-value="off">Off (Zero Shake)</button>
+              <button type="button" class="settings-pill-btn active" data-setting="shake" data-value="reduced">Reduced (Gentle)</button>
+              <button type="button" class="settings-pill-btn" data-setting="shake" data-value="full">Standard</button>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: flex-end; gap: 10px;">
+            <button id="save-settings-btn" class="ed-btn primary" style="padding: 9px 24px;">Save & Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Death Banner -->
+      <div id="death-banner" class="banner">
+        <div class="banner-box">
+          <h2 style="color:#f87171; font-size:24px; margin-bottom:8px;">Fallen in the Meadow</h2>
+          <p id="death-summary" style="font-size:14px; color:#cbd5e1; margin-bottom:16px;">You were defeated.</p>
+          <button id="respawn-btn" class="ed-btn primary" style="font-size:14px; padding:10px 20px;">Respawn (R)</button>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

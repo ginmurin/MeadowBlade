@@ -1,0 +1,3 @@
+Glacial Heart
+100% FREE complete pack: 606 animation PNG frames; 5 actions, all in 8 directions. 8 static rotations and 5 art PNGs (four full-body illustrations and one skill board). Art boards are whole sheets for cropping. No engine project, controller, audio or gameplay code. Set anchors and animation timing in your engine. Original assets have no added advertising watermarks.
+Commercial and non-commercial use and modifications allowed. Credit "elie automata". Distribution within finished projects allowed. No standalone resale, sharing or redistribution of original or modified assets.
