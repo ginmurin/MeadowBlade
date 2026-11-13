@@ -5,7 +5,7 @@ import { parseTmxXml, parseTsxXml, resolveExternalTilesetSources } from '../map/
 import type { CharacterKind } from '../sim/types';
 
 export class LobbyUI {
-  private client: LobbyClient;
+  public client: LobbyClient;
   private container: HTMLElement;
   private uploadedTiledMap: any | null = null;
   private onLaunchGameCb?: (lobby: LobbyState, hero: CharacterKind, mapData?: any) => void;

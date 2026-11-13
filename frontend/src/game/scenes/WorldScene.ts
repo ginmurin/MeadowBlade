@@ -25,6 +25,7 @@ export interface WorldSceneInitData {
   lobbyRoomCode?: string;
   isPvp?: boolean;
   localPlayerName?: string;
+  existingNet?: { peer: any; connections: any[] };
 }
 
 interface AnimatedTileRef {
@@ -149,6 +150,7 @@ export class WorldScene extends Phaser.Scene {
   private lobbyRoomCode?: string;
   private isPvp = false;
   private localPlayerName = 'Hero';
+  private existingNet?: { peer: any; connections: any[] };
 
   constructor() {
     super('WorldScene');
@@ -162,6 +164,7 @@ export class WorldScene extends Phaser.Scene {
     this.lobbyRoomCode = data?.lobbyRoomCode;
     this.isPvp = Boolean(data?.isPvp);
     this.localPlayerName = data?.localPlayerName || localStorage.getItem('meadowblade_player_name') || 'Hero';
+    this.existingNet = data?.existingNet;
 
     const isCustomMap = Boolean(this.tiledMapData || (this.tiledMapKey && this.tiledMapKey !== 'meadow'));
     this.waveMode = data?.waveMode !== undefined ? data.waveMode : (!isCustomMap && !this.isPvp);
@@ -242,7 +245,7 @@ export class WorldScene extends Phaser.Scene {
   private initMultiplayerSession(): void {
     if (!this.lobbyRoomCode) return;
     const localId = `net_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    this.netSession = new MultiplayerGameSession(this.lobbyRoomCode, localId);
+    this.netSession = new MultiplayerGameSession(this.lobbyRoomCode, localId, this.existingNet);
 
     if (this.isPvp) {
       this.spawnSkillBanner(this.cameras.main.midPoint.x, this.cameras.main.midPoint.y - 70, '⚔️ PVP DUEL ARENA ACTIVE!');

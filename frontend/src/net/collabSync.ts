@@ -156,8 +156,8 @@ export type LobbyMessage =
 
 export class LobbyClient {
   private channel: BroadcastChannel | null = null;
-  private peer: any = null;
-  private peerConnections: any[] = [];
+  public peer: any = null;
+  public peerConnections: any[] = [];
   public lobby: LobbyState | null = null;
   public localPlayer: LobbyPlayer;
   private onUpdateCb?: (lobby: LobbyState) => void;
@@ -321,6 +321,14 @@ export class LobbyClient {
     }
   }
 
+  public detachNetwork(): { peer: any; connections: any[] } {
+    clearInterval(this.heartbeatTimer);
+    const result = { peer: this.peer, connections: [...this.peerConnections] };
+    this.peer = null;
+    this.peerConnections = [];
+    return result;
+  }
+
   public leaveLobby(): void {
     if (this.lobby) {
       this.lobby.players = this.lobby.players.filter((p) => p.id !== this.localPlayer.id);
@@ -464,17 +472,23 @@ export class MultiplayerGameSession {
   private onPeerHitCb?: (targetId: string, damage: number, attackerId: string) => void;
   private onPeerLeaveCb?: (id: string) => void;
 
-  constructor(public readonly roomCode: string, public readonly localId: string) {
+  constructor(
+    public readonly roomCode: string,
+    public readonly localId: string,
+    existingNet?: { peer: any; connections: any[] }
+  ) {
     if (typeof BroadcastChannel !== 'undefined') {
       this.channel = new BroadcastChannel(`meadowblade_game_${roomCode}`);
       this.channel.onmessage = (ev) => this.handleMessage(ev.data as NetGameMessage);
     }
 
-    try {
-      const cleanCode = roomCode.trim().toLowerCase();
-      const peerId = `meadowblade_game_${cleanCode}_${localId}`;
-      this.peer = new PeerConstructor(peerId);
-
+    if (existingNet && existingNet.peer) {
+      this.peer = existingNet.peer;
+      this.peerConnections = existingNet.connections || [];
+      for (const conn of this.peerConnections) {
+        conn.removeAllListeners?.('data');
+        conn.on('data', (data: any) => this.handleMessage(data as NetGameMessage));
+      }
       this.peer.on('connection', (conn: any) => {
         this.peerConnections.push(conn);
         conn.on('data', (data: any) => this.handleMessage(data as NetGameMessage));
@@ -482,8 +496,6 @@ export class MultiplayerGameSession {
           this.peerConnections = this.peerConnections.filter((c) => c !== conn);
         });
       });
-    } catch (e) {
-      console.warn('Game session PeerJS error:', e);
     }
   }
 

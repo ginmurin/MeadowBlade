@@ -18,6 +18,7 @@ export interface StartWorldOptions {
   lobbyRoomCode?: string;
   isPvp?: boolean;
   localPlayerName?: string;
+  existingNet?: { peer: any; connections: any[] };
 }
 
 class AppController {
@@ -327,7 +328,8 @@ class AppController {
         waveMode: this.activeWaveMode,
         lobbyRoomCode: options?.lobbyRoomCode,
         isPvp: options?.isPvp,
-        localPlayerName: options?.localPlayerName
+        localPlayerName: options?.localPlayerName,
+        existingNet: options?.existingNet
       };
 
       if (worldScene) {
@@ -353,14 +355,17 @@ class AppController {
     });
 
     this.lobbyUI.onLaunch((lobby, hero, tiledMapData) => {
+      const isBuiltin = !tiledMapData && (!lobby.mapId || lobby.mapId === 'builtin_meadow' || lobby.mapId === 'meadow');
+      const existingNet = this.lobbyUI?.client.detachNetwork();
       this.startWorld({
         tiledMapData,
-        tiledMapKey: tiledMapData ? undefined : lobby.mapId,
-        mapName: lobby.mapName,
+        tiledMapKey: isBuiltin ? 'meadow' : (tiledMapData ? undefined : lobby.mapId),
+        mapName: isBuiltin ? 'Meadow Realm' : lobby.mapName,
         hero,
         lobbyRoomCode: lobby.code,
         isPvp: lobby.gameMode === 'pvp',
-        localPlayerName: localStorage.getItem('meadowblade_player_name') || 'Hero'
+        localPlayerName: localStorage.getItem('meadowblade_player_name') || 'Hero',
+        existingNet
       });
     });
   }
