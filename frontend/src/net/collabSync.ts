@@ -1,7 +1,9 @@
 import type { CustomMapData, CustomProperty, MapObject, MapZone, TileCell } from '../map/mapModel';
 import { createEmptyMap } from '../map/mapModel';
 import type { CharacterKind } from '../sim/types';
-import { joinRoom, type Room } from 'trystero';
+import PeerPkg from 'peerjs';
+
+const PeerConstructor: any = (PeerPkg as any).Peer || (PeerPkg as any).default || PeerPkg;
 
 const MAPS_STORAGE_KEY = 'meadowblade_saved_maps_v2';
 const ACTIVE_MAP_KEY = 'meadowblade_active_map_id';
@@ -154,8 +156,8 @@ export type LobbyMessage =
 
 export class LobbyClient {
   private channel: BroadcastChannel | null = null;
-  private p2pRoom: Room | null = null;
-  private p2pSendMsg: ((msg: LobbyMessage) => void) | null = null;
+  private peer: any = null;
+  private peerConnections: any[] = [];
   public lobby: LobbyState | null = null;
   public localPlayer: LobbyPlayer;
   private onUpdateCb?: (lobby: LobbyState) => void;
@@ -179,22 +181,6 @@ export class LobbyClient {
     if (typeof BroadcastChannel !== 'undefined') {
       this.channel = new BroadcastChannel('meadowblade_lobby_mesh');
       this.channel.onmessage = (ev) => this.handleMessage(ev.data as LobbyMessage);
-    }
-
-    try {
-      this.p2pRoom = joinRoom({ appId: 'meadowblade-rpg-v1' }, 'meadowblade_global_matchmaking');
-      const action: any = this.p2pRoom.makeAction('lobby_msg');
-      if (typeof action === 'object' && action !== null) {
-        if (typeof action.send === 'function') {
-          this.p2pSendMsg = (data: LobbyMessage) => action.send(data);
-          action.onMessage = (data: any) => this.handleMessage(data as LobbyMessage);
-        } else if (Array.isArray(action)) {
-          this.p2pSendMsg = action[0];
-          action[1]((data: any) => this.handleMessage(data as LobbyMessage));
-        }
-      }
-    } catch (e) {
-      console.warn('P2P Global Matchmaking Room init fallback:', e);
     }
 
     this.queryLobbies();
@@ -233,14 +219,66 @@ export class LobbyClient {
       gameMode
     };
 
+    this.initHostPeer(code);
+
     this.broadcast({ type: 'ANNOUNCE_LOBBY', lobby: this.lobby });
     this.startHeartbeat();
     this.onUpdateCb?.(this.lobby);
     return this.lobby;
   }
 
+  private initHostPeer(code: string): void {
+    try {
+      this.peer?.destroy();
+      const peerId = `meadowblade_room_${code.toLowerCase()}`;
+      this.peer = new PeerConstructor(peerId);
+
+      this.peer.on('connection', (conn: any) => {
+        this.peerConnections.push(conn);
+        conn.on('data', (data: any) => {
+          this.handleMessage(data as LobbyMessage);
+        });
+        conn.on('close', () => {
+          this.peerConnections = this.peerConnections.filter((c) => c !== conn);
+        });
+      });
+
+      this.peer.on('error', (err: any) => {
+        console.warn('Host PeerJS warning:', err);
+      });
+    } catch (e) {
+      console.warn('Host PeerJS failed:', e);
+    }
+  }
+
   public joinLobby(code: string): void {
-    this.broadcast({ type: 'JOIN_REQUEST', code, player: this.localPlayer });
+    const cleanCode = code.trim().toUpperCase();
+    this.broadcast({ type: 'JOIN_REQUEST', code: cleanCode, player: this.localPlayer });
+
+    try {
+      this.peer?.destroy();
+      this.peer = new PeerConstructor();
+
+      this.peer.on('open', () => {
+        const targetPeerId = `meadowblade_room_${cleanCode.toLowerCase()}`;
+        const conn = this.peer.connect(targetPeerId);
+
+        conn.on('open', () => {
+          this.peerConnections = [conn];
+          conn.send({ type: 'JOIN_REQUEST', code: cleanCode, player: this.localPlayer });
+        });
+
+        conn.on('data', (data: any) => {
+          this.handleMessage(data as LobbyMessage);
+        });
+
+        conn.on('error', (err: any) => {
+          console.warn('Peer connection error:', err);
+        });
+      });
+    } catch (e) {
+      console.warn('Client PeerJS connect error:', e);
+    }
   }
 
   public setHero(hero: CharacterKind): void {
@@ -296,6 +334,11 @@ export class LobbyClient {
     this.localPlayer.isHost = false;
     this.localPlayer.ready = false;
     clearInterval(this.heartbeatTimer);
+    try {
+      this.peer?.destroy();
+    } catch {}
+    this.peer = null;
+    this.peerConnections = [];
   }
 
   public queryLobbies(): void {
@@ -324,9 +367,13 @@ export class LobbyClient {
 
   private broadcast(msg: LobbyMessage): void {
     this.channel?.postMessage(msg);
-    try {
-      this.p2pSendMsg?.(msg);
-    } catch {}
+    for (const conn of this.peerConnections) {
+      try {
+        if (conn.open) {
+          conn.send(msg);
+        }
+      } catch {}
+    }
   }
 
   private handleMessage(msg: LobbyMessage): void {
@@ -381,9 +428,6 @@ export class LobbyClient {
   public destroy(): void {
     this.leaveLobby();
     this.channel?.close();
-    try {
-      this.p2pRoom?.leave();
-    } catch {}
   }
 }
 
@@ -412,8 +456,8 @@ export type NetGameMessage =
 
 export class MultiplayerGameSession {
   private channel: BroadcastChannel | null = null;
-  private p2pRoom: Room | null = null;
-  private p2pSendMsg: ((msg: NetGameMessage) => void) | null = null;
+  private peer: any = null;
+  private peerConnections: any[] = [];
   public peers = new Map<string, NetworkPlayerSync>();
   private onPeerUpdateCb?: (peer: NetworkPlayerSync) => void;
   private onPeerAttackCb?: (msg: Extract<NetGameMessage, { type: 'PLAYER_ATTACK' }>) => void;
@@ -427,19 +471,19 @@ export class MultiplayerGameSession {
     }
 
     try {
-      this.p2pRoom = joinRoom({ appId: 'meadowblade-rpg-v1' }, `meadowblade_game_${roomCode.toLowerCase()}`);
-      const action: any = this.p2pRoom.makeAction('net_game_action');
-      if (typeof action === 'object' && action !== null) {
-        if (typeof action.send === 'function') {
-          this.p2pSendMsg = (data: NetGameMessage) => action.send(data);
-          action.onMessage = (data: any) => this.handleMessage(data as NetGameMessage);
-        } else if (Array.isArray(action)) {
-          this.p2pSendMsg = action[0];
-          action[1]((data: any) => this.handleMessage(data as NetGameMessage));
-        }
-      }
+      const cleanCode = roomCode.trim().toLowerCase();
+      const peerId = `meadowblade_game_${cleanCode}_${localId}`;
+      this.peer = new PeerConstructor(peerId);
+
+      this.peer.on('connection', (conn: any) => {
+        this.peerConnections.push(conn);
+        conn.on('data', (data: any) => this.handleMessage(data as NetGameMessage));
+        conn.on('close', () => {
+          this.peerConnections = this.peerConnections.filter((c) => c !== conn);
+        });
+      });
     } catch (e) {
-      console.warn('P2P Game Room init fallback:', e);
+      console.warn('Game session PeerJS error:', e);
     }
   }
 
@@ -462,9 +506,11 @@ export class MultiplayerGameSession {
   public broadcastState(state: NetworkPlayerSync): void {
     const msg: NetGameMessage = { type: 'PLAYER_STATE', state };
     this.channel?.postMessage(msg);
-    try {
-      this.p2pSendMsg?.(msg);
-    } catch {}
+    for (const conn of this.peerConnections) {
+      try {
+        if (conn.open) conn.send(msg);
+      } catch {}
+    }
   }
 
   public broadcastAttack(hero: CharacterKind, x: number, y: number, attackType: string, damage: number, facing: string): void {
@@ -479,9 +525,11 @@ export class MultiplayerGameSession {
       facing
     };
     this.channel?.postMessage(msg);
-    try {
-      this.p2pSendMsg?.(msg);
-    } catch {}
+    for (const conn of this.peerConnections) {
+      try {
+        if (conn.open) conn.send(msg);
+      } catch {}
+    }
   }
 
   public broadcastHit(targetId: string, damage: number): void {
@@ -492,9 +540,11 @@ export class MultiplayerGameSession {
       attackerId: this.localId
     };
     this.channel?.postMessage(msg);
-    try {
-      this.p2pSendMsg?.(msg);
-    } catch {}
+    for (const conn of this.peerConnections) {
+      try {
+        if (conn.open) conn.send(msg);
+      } catch {}
+    }
   }
 
   private handleMessage(msg: NetGameMessage): void {
@@ -516,9 +566,13 @@ export class MultiplayerGameSession {
   public destroy(): void {
     const msg: NetGameMessage = { type: 'PLAYER_LEFT', id: this.localId };
     this.channel?.postMessage(msg);
+    for (const conn of this.peerConnections) {
+      try {
+        if (conn.open) conn.send(msg);
+      } catch {}
+    }
     try {
-      this.p2pSendMsg?.(msg);
-      this.p2pRoom?.leave();
+      this.peer?.destroy();
     } catch {}
     this.channel?.close();
   }
