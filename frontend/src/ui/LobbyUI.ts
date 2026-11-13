@@ -1,4 +1,4 @@
-import { LobbyClient, type LobbyState } from '../net/collabSync';
+import { LobbyClient, type LobbyState, type GameMode } from '../net/collabSync';
 import { generateProceduralMap, type ProceduralTheme } from '../map/proceduralGen';
 import { exportToTiledJson } from '../map/mapModel';
 import { parseTmxXml, parseTsxXml, resolveExternalTilesetSources } from '../map/tiledParser';
@@ -10,10 +10,13 @@ export class LobbyUI {
   private uploadedTiledMap: any | null = null;
   private onLaunchGameCb?: (lobby: LobbyState, hero: CharacterKind, mapData?: any) => void;
   private onBackCb?: () => void;
+  private playerName: string = '';
 
   constructor(containerId: string) {
     this.container = document.getElementById(containerId)!;
-    this.client = new LobbyClient();
+    const savedName = localStorage.getItem('meadowblade_player_name') || '';
+    this.playerName = savedName;
+    this.client = new LobbyClient(this.playerName || undefined);
     this.init();
   }
 
@@ -25,7 +28,53 @@ export class LobbyUI {
     });
     this.client.onChat((user, text) => this.appendChatMessage(user, text));
 
-    this.renderBrowseView();
+    if (!this.playerName) {
+      this.renderNamePrompt();
+    } else {
+      this.renderBrowseView();
+    }
+  }
+
+  public renderNamePrompt(): void {
+    this.container.innerHTML = `
+      <div class="lobby-screen" style="max-width: 480px; height: auto; padding: 32px 28px; text-align: center;">
+        <div style="font-size: 32px; margin-bottom: 8px;">⚔️</div>
+        <h2 style="font-size: 22px; color: #f8fafc; margin-bottom: 6px;">Enter Your Hero Name</h2>
+        <p style="font-size: 13px; color: #94a3b8; margin-bottom: 20px;">
+          Choose your identity before entering multiplayer lobbies, co-op parties, or PVP duels.
+        </p>
+        <div style="margin-bottom: 16px;">
+          <input id="prompt-player-name" type="text" placeholder="e.g. Shadowblade, Valen, Aerith" class="ed-input" style="font-size: 15px; padding: 10px 14px; text-align: center;" autofocus />
+        </div>
+        <div style="display: flex; gap: 10px;">
+          <button id="prompt-back-btn" class="ed-btn ghost" style="flex: 1; padding: 10px;">← Main Menu</button>
+          <button id="prompt-continue-btn" class="ed-btn primary" style="flex: 2; padding: 10px; font-weight: 700;">Continue to Lobby →</button>
+        </div>
+      </div>
+    `;
+
+    const input = document.getElementById('prompt-player-name') as HTMLInputElement;
+    input?.focus();
+
+    const proceed = () => {
+      const val = input.value.trim();
+      if (!val) {
+        input.style.borderColor = '#ef4444';
+        return;
+      }
+      this.playerName = val;
+      localStorage.setItem('meadowblade_player_name', val);
+      this.client.localPlayer.name = val;
+      this.renderBrowseView();
+    };
+
+    document.getElementById('prompt-continue-btn')?.addEventListener('click', proceed);
+    input?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') proceed();
+    });
+    document.getElementById('prompt-back-btn')?.addEventListener('click', () => {
+      this.onBackCb?.();
+    });
   }
 
   public renderBrowseView(): void {
@@ -36,6 +85,7 @@ export class LobbyUI {
           <h2>Multiplayer Adventure Lobbies</h2>
           <div class="lobby-user-tag">
             Playing as: <strong id="lobby-username">${this.client.localPlayer.name}</strong>
+            <button id="change-name-btn" class="ed-btn tiny ghost" style="margin-left: 8px; font-size: 10px; padding: 2px 6px;">Edit</button>
           </div>
         </div>
 
@@ -58,13 +108,22 @@ export class LobbyUI {
             </div>
 
             <div class="form-section">
-              <label class="form-label">Create a New Party</label>
+              <label class="form-label">Create a New Room</label>
               <div class="form-row">
-                <input id="new-lobby-name" type="text" placeholder="Party Name" value="${this.client.localPlayer.name}'s Expedition" class="ed-input" />
+                <input id="new-lobby-name" type="text" placeholder="Party Name" value="${this.client.localPlayer.name}'s Room" class="ed-input" />
+              </div>
+
+              <!-- Game Mode Selector: Co-op vs PVP Arena -->
+              <div class="form-row" style="margin-top:12px;">
+                <label class="form-sublabel">Select Match Mode:</label>
+                <select id="lobby-game-mode" class="ed-select">
+                  <option value="coop" selected>🤝 Cooperative Adventure (Battle Mobs & Bosses Together)</option>
+                  <option value="pvp">⚔️ PVP Duel Arena (Player vs Player Combat)</option>
+                </select>
               </div>
 
               <!-- Map Source Option Tabs -->
-              <div class="form-row" style="margin-top:12px;">
+              <div class="form-row" style="margin-top:10px;">
                 <label class="form-sublabel">Select Map Mode:</label>
                 <select id="lobby-map-mode" class="ed-select">
                   <option value="builtin" selected>Built-in Lush Meadow (Tiled Map)</option>
@@ -183,9 +242,16 @@ export class LobbyUI {
       this.client.queryLobbies();
     });
 
+    document.getElementById('change-name-btn')?.addEventListener('click', () => {
+      this.renderNamePrompt();
+    });
+
     document.getElementById('create-lobby-btn')?.addEventListener('click', () => {
       const nameInput = document.getElementById('new-lobby-name') as HTMLInputElement;
       const mode = modeSelect.value;
+      const gameModeSelect = document.getElementById('lobby-game-mode') as HTMLSelectElement;
+      const gameMode = (gameModeSelect?.value || 'coop') as GameMode;
+
       let mapId = 'builtin_meadow';
       let mapName = 'Meadow Realm';
 
@@ -200,7 +266,7 @@ export class LobbyUI {
         mapName = this.uploadedTiledMap.name || 'Custom Tiled Map';
       }
 
-      this.client.hostLobby(mapId, mapName, nameInput.value.trim());
+      this.client.hostLobby(mapId, mapName, nameInput.value.trim(), gameMode);
     });
 
     document.getElementById('direct-join-btn')?.addEventListener('click', () => {
@@ -228,7 +294,7 @@ export class LobbyUI {
         (l) => `
         <div class="lobby-card">
           <div class="lobby-card-info">
-            <div class="lobby-card-title">${l.name}</div>
+            <div class="lobby-card-title">${l.name} ${l.gameMode === 'pvp' ? '<span style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); font-size: 10px; padding: 1px 6px; border-radius: 4px; margin-left: 6px;">⚔️ PVP ARENA</span>' : '<span style="background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); font-size: 10px; padding: 1px 6px; border-radius: 4px; margin-left: 6px;">🤝 CO-OP</span>'}</div>
             <div class="lobby-card-sub">Map: <strong>${l.mapName}</strong> · Code: <span class="room-code-tag">${l.code}</span></div>
           </div>
           <div class="lobby-card-right">
@@ -263,7 +329,12 @@ export class LobbyUI {
               <button id="copy-code-btn" class="ed-btn tiny">Copy</button>
             </div>
           </div>
-          <div class="room-map-badge">Realm: <strong>${lobby.mapName}</strong></div>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <div class="room-map-badge" style="${lobby.gameMode === 'pvp' ? 'background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #f87171;' : ''}">
+              Mode: <strong>${lobby.gameMode === 'pvp' ? '⚔️ PVP Duel Arena' : '🤝 Co-op Adventure'}</strong>
+            </div>
+            <div class="room-map-badge">Realm: <strong>${lobby.mapName}</strong></div>
+          </div>
         </header>
 
         <div class="room-grid">

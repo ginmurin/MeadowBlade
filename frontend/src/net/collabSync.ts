@@ -128,6 +128,8 @@ export interface LobbyPlayer {
   ping: number;
 }
 
+export type GameMode = 'coop' | 'pvp';
+
 export interface LobbyState {
   code: string;
   name: string;
@@ -137,6 +139,7 @@ export interface LobbyState {
   maxPlayers: number;
   players: LobbyPlayer[];
   status: 'waiting' | 'in_game';
+  gameMode: GameMode;
 }
 
 export type LobbyMessage =
@@ -193,7 +196,7 @@ export class LobbyClient {
     this.onChatCb = cb;
   }
 
-  public hostLobby(mapId: string, mapName: string, lobbyName?: string): LobbyState {
+  public hostLobby(mapId: string, mapName: string, lobbyName?: string, gameMode: GameMode = 'coop'): LobbyState {
     const code = Math.random().toString(36).substring(2, 8).toUpperCase();
     this.localPlayer.isHost = true;
     this.localPlayer.ready = true;
@@ -206,7 +209,8 @@ export class LobbyClient {
       mapName,
       maxPlayers: 4,
       players: [this.localPlayer],
-      status: 'waiting'
+      status: 'waiting',
+      gameMode
     };
 
     this.broadcast({ type: 'ANNOUNCE_LOBBY', lobby: this.lobby });
@@ -233,6 +237,14 @@ export class LobbyClient {
     if (this.lobby && this.localPlayer.isHost) {
       this.lobby.mapId = mapId;
       this.lobby.mapName = mapName;
+      this.broadcast({ type: 'UPDATE_LOBBY', lobby: this.lobby });
+      this.onUpdateCb?.(this.lobby);
+    }
+  }
+
+  public setGameMode(mode: GameMode): void {
+    if (this.lobby && this.localPlayer.isHost) {
+      this.lobby.gameMode = mode;
       this.broadcast({ type: 'UPDATE_LOBBY', lobby: this.lobby });
       this.onUpdateCb?.(this.lobby);
     }
@@ -345,6 +357,108 @@ export class LobbyClient {
 
   public destroy(): void {
     this.leaveLobby();
+    this.channel?.close();
+  }
+}
+
+// -------------------------------------------------------------
+// REAL-TIME MULTIPLAYER & PVP GAME SESSION (Broadcast / WebRTC Mesh)
+// -------------------------------------------------------------
+export interface NetworkPlayerSync {
+  id: string;
+  name: string;
+  hero: CharacterKind;
+  x: number;
+  y: number;
+  facing: string;
+  action: string;
+  hp: number;
+  maxHp: number;
+  isAttacking?: boolean;
+  pvpEnabled?: boolean;
+}
+
+export type NetGameMessage =
+  | { type: 'PLAYER_STATE'; state: NetworkPlayerSync }
+  | { type: 'PLAYER_ATTACK'; attackerId: string; hero: CharacterKind; x: number; y: number; attackType: string; damage: number; facing: string }
+  | { type: 'PLAYER_HIT'; targetId: string; damage: number; attackerId: string }
+  | { type: 'PLAYER_LEFT'; id: string };
+
+export class MultiplayerGameSession {
+  private channel: BroadcastChannel | null = null;
+  public peers = new Map<string, NetworkPlayerSync>();
+  private onPeerUpdateCb?: (peer: NetworkPlayerSync) => void;
+  private onPeerAttackCb?: (msg: Extract<NetGameMessage, { type: 'PLAYER_ATTACK' }>) => void;
+  private onPeerHitCb?: (targetId: string, damage: number, attackerId: string) => void;
+  private onPeerLeaveCb?: (id: string) => void;
+
+  constructor(public readonly roomCode: string, public readonly localId: string) {
+    if (typeof BroadcastChannel !== 'undefined') {
+      this.channel = new BroadcastChannel(`meadowblade_game_${roomCode}`);
+      this.channel.onmessage = (ev) => this.handleMessage(ev.data as NetGameMessage);
+    }
+  }
+
+  public onPeerUpdate(cb: (peer: NetworkPlayerSync) => void): void {
+    this.onPeerUpdateCb = cb;
+  }
+
+  public onPeerAttack(cb: (msg: Extract<NetGameMessage, { type: 'PLAYER_ATTACK' }>) => void): void {
+    this.onPeerAttackCb = cb;
+  }
+
+  public onPeerHit(cb: (targetId: string, damage: number, attackerId: string) => void): void {
+    this.onPeerHitCb = cb;
+  }
+
+  public onPeerLeave(cb: (id: string) => void): void {
+    this.onPeerLeaveCb = cb;
+  }
+
+  public broadcastState(state: NetworkPlayerSync): void {
+    this.channel?.postMessage({ type: 'PLAYER_STATE', state });
+  }
+
+  public broadcastAttack(hero: CharacterKind, x: number, y: number, attackType: string, damage: number, facing: string): void {
+    this.channel?.postMessage({
+      type: 'PLAYER_ATTACK',
+      attackerId: this.localId,
+      hero,
+      x,
+      y,
+      attackType,
+      damage,
+      facing
+    });
+  }
+
+  public broadcastHit(targetId: string, damage: number): void {
+    this.channel?.postMessage({
+      type: 'PLAYER_HIT',
+      targetId,
+      damage,
+      attackerId: this.localId
+    });
+  }
+
+  private handleMessage(msg: NetGameMessage): void {
+    if (msg.type === 'PLAYER_STATE') {
+      if (msg.state.id === this.localId) return;
+      this.peers.set(msg.state.id, msg.state);
+      this.onPeerUpdateCb?.(msg.state);
+    } else if (msg.type === 'PLAYER_ATTACK') {
+      if (msg.attackerId === this.localId) return;
+      this.onPeerAttackCb?.(msg);
+    } else if (msg.type === 'PLAYER_HIT') {
+      this.onPeerHitCb?.(msg.targetId, msg.damage, msg.attackerId);
+    } else if (msg.type === 'PLAYER_LEFT') {
+      this.peers.delete(msg.id);
+      this.onPeerLeaveCb?.(msg.id);
+    }
+  }
+
+  public destroy(): void {
+    this.channel?.postMessage({ type: 'PLAYER_LEFT', id: this.localId });
     this.channel?.close();
   }
 }

@@ -12,6 +12,7 @@ import { SlimeAnimator } from '../sprites/SlimeAnimator';
 import { OrcAnimator } from '../sprites/OrcAnimator';
 import { BossAnimator } from '../sprites/BossAnimator';
 import { KNOWN_TILESET_ANIMATIONS, parseTiledMapData, resolveExternalTilesetSources, resolveTilesetTextureKey, type TiledZoneData } from '../../map/tiledParser';
+import { MultiplayerGameSession } from '../../net/collabSync';
 
 const FIXED_DT = 1 / 60;
 
@@ -21,6 +22,9 @@ export interface WorldSceneInitData {
   mapName?: string;
   hero?: CharacterKind;
   waveMode?: boolean;
+  lobbyRoomCode?: string;
+  isPvp?: boolean;
+  localPlayerName?: string;
 }
 
 interface AnimatedTileRef {
@@ -139,6 +143,13 @@ export class WorldScene extends Phaser.Scene {
   private deathBannerEl!: HTMLElement;
   private deathSummaryEl!: HTMLElement;
 
+  // Multiplayer & PVP Network Session
+  private netSession: MultiplayerGameSession | null = null;
+  private peerAnimators = new Map<string, CharacterAnimator>();
+  private lobbyRoomCode?: string;
+  private isPvp = false;
+  private localPlayerName = 'Hero';
+
   constructor() {
     super('WorldScene');
   }
@@ -148,10 +159,15 @@ export class WorldScene extends Phaser.Scene {
     this.tiledMapKey = data?.tiledMapKey || (this.tiledMapData ? `custom_tiled_${Date.now()}` : 'meadow');
     this.mapName = data?.mapName || (this.tiledMapData ? 'Custom Tiled Map' : 'Meadow Realm');
     this.initialHero = data?.hero || 'crimson';
+    this.lobbyRoomCode = data?.lobbyRoomCode;
+    this.isPvp = Boolean(data?.isPvp);
+    this.localPlayerName = data?.localPlayerName || localStorage.getItem('meadowblade_player_name') || 'Hero';
+
     const isCustomMap = Boolean(this.tiledMapData || (this.tiledMapKey && this.tiledMapKey !== 'meadow'));
-    this.waveMode = data?.waveMode !== undefined ? data.waveMode : !isCustomMap;
+    this.waveMode = data?.waveMode !== undefined ? data.waveMode : (!isCustomMap && !this.isPvp);
     this.enemyAnimators.clear();
     this.projectileSprites.clear();
+    this.peerAnimators.clear();
     this.accumulator = 0;
   }
 
@@ -217,9 +233,50 @@ export class WorldScene extends Phaser.Scene {
 
     const realmNameEl = document.getElementById('in-game-realm-name');
     if (realmNameEl) {
-      realmNameEl.textContent = this.mapName;
+      realmNameEl.textContent = this.isPvp ? `${this.mapName} (PVP Arena)` : this.mapName;
     }
+    this.initMultiplayerSession();
     this.syncWorld(initial);
+  }
+
+  private initMultiplayerSession(): void {
+    if (!this.lobbyRoomCode) return;
+    const localId = `net_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    this.netSession = new MultiplayerGameSession(this.lobbyRoomCode, localId);
+
+    if (this.isPvp) {
+      this.spawnSkillBanner(this.cameras.main.midPoint.x, this.cameras.main.midPoint.y - 70, '⚔️ PVP DUEL ARENA ACTIVE!');
+    }
+
+    this.netSession.onPeerAttack((msg) => {
+      // If PVP is enabled and the attacking peer's strike lands near local player:
+      if (this.isPvp) {
+        const p = this.sim.getSnapshot().player;
+        if (p.action !== 'dead' && p.invulnTimer <= 0) {
+          const dist = Math.hypot(p.x - msg.x, p.y - msg.y);
+          if (dist <= 52) {
+            this.sim.damagePlayer(msg.damage);
+            this.spawnDamageText(p.x, p.y - 12, msg.damage, true);
+            this.spawnSkillBanner(p.x, p.y - 28, `HIT BY ${msg.hero.toUpperCase()}!`);
+            this.triggerCameraShake(180, 0.007);
+          }
+        }
+      }
+    });
+
+    this.netSession.onPeerHit((targetId, damage) => {
+      if (targetId === 'player') {
+        this.sim.damagePlayer(damage);
+      }
+    });
+
+    this.netSession.onPeerLeave((peerId) => {
+      const anim = this.peerAnimators.get(peerId);
+      if (anim) {
+        anim.destroy();
+        this.peerAnimators.delete(peerId);
+      }
+    });
   }
 
   private buildTiledMap(tilemap: Phaser.Tilemaps.Tilemap, rawJson: any): MapSpawnData {
@@ -633,6 +690,25 @@ export class WorldScene extends Phaser.Scene {
       this.syncWorld(this.sim.getSnapshot());
     }
 
+    // Broadcast local player state to multiplayer peers
+    if (this.netSession) {
+      const p = (latestSnapshot || this.sim.getSnapshot()).player;
+      const heroKind = (p.kind === 'elvish' || p.kind === 'legacy' ? p.kind : 'crimson') as CharacterKind;
+      this.netSession.broadcastState({
+        id: this.netSession.localId,
+        name: this.localPlayerName,
+        hero: heroKind,
+        x: p.x,
+        y: p.y,
+        facing: p.facing,
+        action: p.action,
+        hp: p.hp,
+        maxHp: p.maxHp,
+        isAttacking: p.action === 'slash1' || p.action === 'slash2' || p.action === 'skill',
+        pvpEnabled: this.isPvp
+      });
+    }
+
     this.updateAnimatedTiles(deltaMs);
   }
 
@@ -718,7 +794,13 @@ export class WorldScene extends Phaser.Scene {
 
   private handleSimEvents(events: SimEvent[]): void {
     for (const ev of events) {
-      if (ev.type === 'hit') {
+      if (ev.type === 'slash') {
+        if (ev.actorId === 'player' && this.netSession) {
+          const p = this.sim.getSnapshot().player;
+          const heroKind = (p.kind === 'elvish' || p.kind === 'legacy' ? p.kind : 'crimson') as CharacterKind;
+          this.netSession.broadcastAttack(heroKind, ev.x, ev.y, `slash_${ev.combo}`, 26, ev.facing);
+        }
+      } else if (ev.type === 'hit') {
         this.spawnDamageText(ev.x, ev.y, ev.damage, Boolean(ev.critical));
       } else if (ev.type === 'portalTransport') {
         const destKey = (ev.targetMapId || '').toLowerCase().trim();
@@ -1115,6 +1197,65 @@ export class WorldScene extends Phaser.Scene {
 
   private syncWorld(snapshot: WorldSnapshot): void {
     this.playerAnimator.sync(snapshot.player);
+
+    // Sync Multiplayer Peers
+    if (this.netSession) {
+      const activePeers = new Set<string>();
+      for (const [peerId, peer] of this.netSession.peers.entries()) {
+        activePeers.add(peerId);
+        let anim = this.peerAnimators.get(peerId);
+        if (!anim) {
+          const fakeActor: any = {
+            id: peer.id,
+            kind: peer.hero,
+            isPlayer: true,
+            x: peer.x,
+            y: peer.y,
+            facing: peer.facing,
+            action: peer.action,
+            hp: peer.hp,
+            maxHp: peer.maxHp,
+            stamina: 100,
+            maxStamina: 100
+          };
+          anim = new CharacterAnimator(this, fakeActor);
+          this.peerAnimators.set(peerId, anim);
+        }
+        anim.sync({
+          id: peer.id,
+          kind: peer.hero,
+          isPlayer: true,
+          x: peer.x,
+          y: peer.y,
+          facing: peer.facing as any,
+          action: peer.action as any,
+          actionElapsed: 0.1,
+          hp: peer.hp,
+          maxHp: peer.maxHp,
+          stamina: 100,
+          maxStamina: 100,
+          invulnTimer: 0,
+          dashCooldown: 0,
+          dashMaxCooldown: 1.4,
+          skillCooldown: 0,
+          skillMaxCooldown: 5,
+          skillName: 'Skill',
+          guardCooldown: 0,
+          guardMaxCooldown: 2,
+          ultimateCooldown: 0,
+          ultimateMaxCooldown: 16,
+          throwCooldown: 0,
+          throwMaxCooldown: 5
+        });
+      }
+
+      for (const [peerId, anim] of this.peerAnimators.entries()) {
+        if (!activePeers.has(peerId)) {
+          anim.destroy();
+          this.peerAnimators.delete(peerId);
+        }
+      }
+    }
 
     for (const enemySnap of snapshot.enemies) {
       let anim = this.enemyAnimators.get(enemySnap.id);

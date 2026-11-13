@@ -15,6 +15,9 @@ export interface StartWorldOptions {
   mapName?: string;
   hero?: CharacterKind;
   waveMode?: boolean;
+  lobbyRoomCode?: string;
+  isPvp?: boolean;
+  localPlayerName?: string;
 }
 
 class AppController {
@@ -321,7 +324,10 @@ class AppController {
         tiledMapKey: this.activeTiledMapKey,
         mapName: this.activeMapName,
         hero: this.selectedHero,
-        waveMode: this.activeWaveMode
+        waveMode: this.activeWaveMode,
+        lobbyRoomCode: options?.lobbyRoomCode,
+        isPvp: options?.isPvp,
+        localPlayerName: options?.localPlayerName
       };
 
       if (worldScene) {
@@ -351,7 +357,10 @@ class AppController {
         tiledMapData,
         tiledMapKey: tiledMapData ? undefined : lobby.mapId,
         mapName: lobby.mapName,
-        hero
+        hero,
+        lobbyRoomCode: lobby.code,
+        isPvp: lobby.gameMode === 'pvp',
+        localPlayerName: localStorage.getItem('meadowblade_player_name') || 'Hero'
       });
     });
   }
