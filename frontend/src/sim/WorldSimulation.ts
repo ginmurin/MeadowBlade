@@ -982,6 +982,13 @@ export class WorldSimulation {
     this.player.hp = Math.min(this.player.maxHp, this.player.hp + amount);
   }
 
+  public removeProjectile(id: number): void {
+    const p = this.projectiles.find((proj) => proj.id === id);
+    if (p) {
+      p.life = 0;
+    }
+  }
+
   private startPlayerSkill(p: SimActor, dir: Direction8): void {
     if (p.mp < 20) {
       this.events.push({ type: 'noMp', x: p.x, y: p.y, needed: 20 });

@@ -9,12 +9,13 @@ import type {
   WorldSnapshot
 } from '../../sim/types';
 import { HERO_PROFILES, WorldSimulation } from '../../sim/WorldSimulation';
+import { DIRECTION_VECTORS } from '../../sim/directions';
 import { CharacterAnimator } from '../sprites/CharacterAnimator';
 import { SlimeAnimator } from '../sprites/SlimeAnimator';
 import { OrcAnimator } from '../sprites/OrcAnimator';
 import { BossAnimator } from '../sprites/BossAnimator';
 import { KNOWN_TILESET_ANIMATIONS, parseTiledMapData, resolveExternalTilesetSources, resolveTilesetTextureKey, type TiledZoneData } from '../../map/tiledParser';
-import { MultiplayerGameSession } from '../../net/collabSync';
+import { MultiplayerGameSession, type NetworkPlayerSync } from '../../net/collabSync';
 
 const FIXED_DT = 1 / 60;
 
@@ -158,6 +159,8 @@ export class WorldScene extends Phaser.Scene {
   private peerPointers = new Map<string, Phaser.GameObjects.Text>();
   private netBroadcastTimer = 0;
   private processedAttackIds = new Set<string>();
+  private pvpLocalKills = 0;
+  private pvpOpponentKills = 0;
 
   constructor() {
     super('WorldScene');
@@ -177,7 +180,9 @@ export class WorldScene extends Phaser.Scene {
     this.existingNet = data?.existingNet;
 
     const isCustomMap = Boolean(this.tiledMapData || (this.tiledMapKey && this.tiledMapKey !== 'meadow'));
-    this.waveMode = data?.waveMode !== undefined ? data.waveMode : (!isCustomMap && !this.isPvp);
+    this.waveMode = this.isPvp ? false : (data?.waveMode !== undefined ? data.waveMode : !isCustomMap);
+    this.pvpLocalKills = 0;
+    this.pvpOpponentKills = 0;
     this.enemyAnimators.clear();
     this.projectileSprites.clear();
     this.peerAnimators.clear();
@@ -211,6 +216,10 @@ export class WorldScene extends Phaser.Scene {
     const rawJson = this.tiledMapData || this.cache.tilemap.get(targetKey)?.data;
     const mapData = this.buildTiledMap(tilemap, rawJson);
     this.initAnimatedTiles(tilemap, rawJson);
+
+    if (this.isPvp) {
+      mapData.enemySpawns = [];
+    }
 
     // Separate spawn locations: Host West, Guest East
     let spawnOffset: Point2D = { x: 0, y: 0 };
@@ -270,6 +279,9 @@ export class WorldScene extends Phaser.Scene {
     if (realmNameEl) {
       realmNameEl.textContent = this.isPvp ? `${this.mapName} (PVP Arena)` : this.mapName;
     }
+    if (this.isPvp) {
+      this.updatePvpScore();
+    }
     this.initMultiplayerSession();
     this.syncWorld(initial);
   }
@@ -314,8 +326,27 @@ export class WorldScene extends Phaser.Scene {
     });
 
     this.netSession.onPeerHit((targetId, damage) => {
-      if (targetId === 'player') {
-        this.sim.damagePlayer(damage);
+      if (targetId === this.netSession?.localId || targetId === 'player') {
+        const p = this.sim.getSnapshot().player;
+        if (p.action !== 'dead') {
+          this.sim.damagePlayer(damage);
+          this.spawnDamageText(p.x, p.y - 12, damage, true);
+          this.triggerCameraShake(180, 0.007);
+        }
+      }
+    });
+
+    this.netSession.onPeerKilled((victimId, killerId, killerName, victimName) => {
+      if (killerId === this.netSession?.localId) {
+        this.pvpLocalKills++;
+        this.updatePvpScore();
+        this.spawnSkillBanner(this.cameras.main.midPoint.x, this.cameras.main.midPoint.y - 70, `YOU ELIMINATED ${victimName.toUpperCase()}! (+1 KILL)`);
+        this.triggerCameraFlash(250, 234, 179, 8);
+      } else if (victimId === this.netSession?.localId) {
+        this.pvpOpponentKills++;
+        this.updatePvpScore();
+        this.spawnSkillBanner(this.cameras.main.midPoint.x, this.cameras.main.midPoint.y - 70, `ELIMINATED BY ${killerName.toUpperCase()}!`);
+        this.triggerCameraFlash(280, 239, 68, 68);
       }
     });
 
@@ -331,6 +362,55 @@ export class WorldScene extends Phaser.Scene {
         this.peerPointers.delete(peerId);
       }
     });
+  }
+
+  private updatePvpScore(): void {
+    if (this.killsTextEl) {
+      this.killsTextEl.textContent = String(this.pvpLocalKills);
+    }
+    const waveCard = document.getElementById('wave-card');
+    const waveTitle = document.getElementById('wave-title');
+    const waveSub = document.getElementById('wave-subtitle');
+    if (this.isPvp && waveCard && waveTitle && waveSub) {
+      waveCard.style.display = 'block';
+      waveTitle.textContent = 'PVP ARENA';
+      waveTitle.style.color = '#f87171';
+      waveSub.textContent = `You: ${this.pvpLocalKills}  ·  Opponent: ${this.pvpOpponentKills}`;
+    }
+  }
+
+  private checkPvpMeleeHit(damage: number, attackType: string, customRadius = 65): void {
+    if (!this.netSession) return;
+    const p = this.sim.getSnapshot().player;
+    const fvec = DIRECTION_VECTORS[p.facing] || { x: 0, y: 1 };
+    const swingX = p.x + fvec.x * 38;
+    const swingY = p.y + fvec.y * 38;
+
+    for (const [peerId, peer] of this.netSession.peers.entries()) {
+      if (peer.hp > 0) {
+        const distToSwing = Math.hypot(peer.x - swingX, peer.y - swingY);
+        const directDist = Math.hypot(peer.x - p.x, peer.y - p.y);
+        if (distToSwing <= customRadius || directDist <= 48) {
+          this.handlePvpDamageDealt(peerId, peer, damage, attackType);
+        }
+      }
+    }
+  }
+
+  private handlePvpDamageDealt(peerId: string, peer: NetworkPlayerSync, damage: number, _attackType = 'attack'): void {
+    this.spawnDamageText(peer.x, peer.y - 12, damage, false);
+    this.triggerCameraShake(120, 0.005);
+    this.netSession?.broadcastHit(peerId, damage);
+
+    const newHp = Math.max(0, peer.hp - damage);
+    peer.hp = newHp;
+    if (newHp <= 0) {
+      this.pvpLocalKills++;
+      this.updatePvpScore();
+      this.netSession?.broadcastKilled(peerId, this.netSession.localId, this.localPlayerName, peer.name);
+      this.spawnSkillBanner(this.cameras.main.midPoint.x, this.cameras.main.midPoint.y - 70, `YOU ELIMINATED ${peer.name.toUpperCase()}! (+1 KILL)`);
+      this.triggerCameraFlash(250, 234, 179, 8);
+    }
   }
 
   private buildTiledMap(tilemap: Phaser.Tilemaps.Tilemap, rawJson: any): MapSpawnData {
@@ -699,6 +779,10 @@ export class WorldScene extends Phaser.Scene {
   private handleRespawn(): void {
     this.sim.respawnPlayer();
     this.deathBannerEl.classList.remove('visible');
+    if (this.isPvp) {
+      this.spawnSkillBanner(this.cameras.main.midPoint.x, this.cameras.main.midPoint.y - 70, '⚔️ RESPAWNED! SHIELD ACTIVE!');
+      this.triggerCameraFlash(250, 56, 189, 248);
+    }
     this.syncWorld(this.sim.getSnapshot());
   }
 
@@ -855,14 +939,26 @@ export class WorldScene extends Phaser.Scene {
         const heroKind = (p.kind === 'elvish' || p.kind === 'legacy' ? p.kind : 'crimson') as CharacterKind;
         if (ev.type === 'slash' && ev.actorId === 'player') {
           this.netSession.broadcastAttack(heroKind, ev.x, ev.y, `slash_${ev.combo}`, 26, ev.facing);
+          if (this.isPvp) {
+            this.checkPvpMeleeHit(28, `slash_${ev.combo}`, 65);
+          }
         } else if (ev.type === 'bowRelease' && ev.actorId === 'player') {
           this.netSession.broadcastAttack(heroKind, ev.x, ev.y, 'arrow_shot', 28, ev.facing);
         } else if (ev.type === 'skill' && ev.actorId === 'player') {
           this.netSession.broadcastAttack(heroKind, ev.x, ev.y, `skill_${ev.skill}`, 38, p.facing);
+          if (this.isPvp) {
+            this.checkPvpMeleeHit(38, `skill_${ev.skill}`, 75);
+          }
         } else if (ev.type === 'ultimateVfx') {
           this.netSession.broadcastAttack(heroKind, ev.x, ev.y, 'ultimate', 65, ev.dir);
+          if (this.isPvp) {
+            this.checkPvpMeleeHit(65, 'ultimate', 130);
+          }
         } else if (ev.type === 'redFlameRecast') {
           this.netSession.broadcastAttack(heroKind, ev.x, ev.y, 'flame_burst', 45, p.facing);
+          if (this.isPvp) {
+            this.checkPvpMeleeHit(45, 'flame_burst', 85);
+          }
         }
       }
 
@@ -1454,6 +1550,25 @@ export class WorldScene extends Phaser.Scene {
       if (!activeIds.has(id)) {
         sprite.destroy();
         this.projectileSprites.delete(id);
+      }
+    }
+
+    // In PVP, check if local player's projectiles strike any peer
+    if (this.isPvp && this.netSession) {
+      for (const proj of snapshot.projectiles) {
+        if (proj.ownerId === snapshot.player.id) {
+          for (const [peerId, peer] of this.netSession.peers.entries()) {
+            if (peer.hp > 0) {
+              const d = Math.hypot(peer.x - proj.x, peer.y - proj.y);
+              if (d <= 32) {
+                this.sim.removeProjectile(proj.id);
+                const arrowDmg = proj.isSkill ? 38 : (proj.isPerfect ? 36 : 24);
+                this.handlePvpDamageDealt(peerId, peer, arrowDmg, 'arrow_shot');
+                break;
+              }
+            }
+          }
+        }
       }
     }
 

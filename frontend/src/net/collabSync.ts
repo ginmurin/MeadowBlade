@@ -477,6 +477,7 @@ export type NetGameMessage =
   | { type: 'PLAYER_STATE'; state: NetworkPlayerSync }
   | { type: 'PLAYER_ATTACK'; attackerId: string; attackId?: string; hero: CharacterKind; x: number; y: number; attackType: string; damage: number; facing: string }
   | { type: 'PLAYER_HIT'; targetId: string; damage: number; attackerId: string }
+  | { type: 'PLAYER_KILLED'; victimId: string; killerId: string; killerName: string; victimName: string }
   | { type: 'PLAYER_LEFT'; id: string };
 
 export class MultiplayerGameSession {
@@ -487,6 +488,7 @@ export class MultiplayerGameSession {
   private onPeerUpdateCb?: (peer: NetworkPlayerSync) => void;
   private onPeerAttackCb?: (msg: Extract<NetGameMessage, { type: 'PLAYER_ATTACK' }>) => void;
   private onPeerHitCb?: (targetId: string, damage: number, attackerId: string) => void;
+  private onPeerKilledCb?: (victimId: string, killerId: string, killerName: string, victimName: string) => void;
   private onPeerLeaveCb?: (id: string) => void;
 
   constructor(
@@ -570,6 +572,10 @@ export class MultiplayerGameSession {
     this.onPeerHitCb = cb;
   }
 
+  public onPeerKilled(cb: (victimId: string, killerId: string, killerName: string, victimName: string) => void): void {
+    this.onPeerKilledCb = cb;
+  }
+
   public onPeerLeave(cb: (id: string) => void): void {
     this.onPeerLeaveCb = cb;
   }
@@ -627,6 +633,22 @@ export class MultiplayerGameSession {
     }
   }
 
+  public broadcastKilled(victimId: string, killerId: string, killerName: string, victimName: string): void {
+    const msg: NetGameMessage = {
+      type: 'PLAYER_KILLED',
+      victimId,
+      killerId,
+      killerName,
+      victimName
+    };
+    this.channel?.postMessage(msg);
+    for (const conn of this.peerConnections) {
+      try {
+        if (conn.open || conn._open) conn.send(msg);
+      } catch {}
+    }
+  }
+
   private handleMessage(msg: NetGameMessage): void {
     if (msg.type === 'PLAYER_STATE') {
       if (msg.state.id === this.localId) return;
@@ -637,6 +659,8 @@ export class MultiplayerGameSession {
       this.onPeerAttackCb?.(msg);
     } else if (msg.type === 'PLAYER_HIT') {
       this.onPeerHitCb?.(msg.targetId, msg.damage, msg.attackerId);
+    } else if (msg.type === 'PLAYER_KILLED') {
+      this.onPeerKilledCb?.(msg.victimId, msg.killerId, msg.killerName, msg.victimName);
     } else if (msg.type === 'PLAYER_LEFT') {
       this.peers.delete(msg.id);
       this.onPeerLeaveCb?.(msg.id);
