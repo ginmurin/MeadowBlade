@@ -90,6 +90,8 @@ export interface ActorSnapshot {
   id: string;
   kind: CharacterKind | EnemyKind;
   isPlayer: boolean;
+  peerName?: string;
+  isPvp?: boolean;
   isBoss?: boolean;
   bossName?: string;
   bossPhase?: 1 | 2;

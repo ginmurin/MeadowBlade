@@ -307,8 +307,10 @@ class AppController {
 
   public startWorld(options?: StartWorldOptions): void {
     this.activeTiledMapData = options?.tiledMapData;
-    this.activeTiledMapKey = options?.tiledMapKey || (this.activeTiledMapData ? `custom_tiled_${Date.now()}` : 'meadow');
-    this.activeMapName = options?.mapName || (this.activeTiledMapData ? 'Custom Tiled Map' : 'Meadow Realm');
+    const rawKey = options?.tiledMapKey;
+    const isBuiltinMeadow = !this.activeTiledMapData && (!rawKey || rawKey === 'meadow' || rawKey === 'builtin_meadow' || rawKey === 'builtin');
+    this.activeTiledMapKey = isBuiltinMeadow ? 'meadow' : (rawKey || (this.activeTiledMapData ? `custom_tiled_${Date.now()}` : 'meadow'));
+    this.activeMapName = isBuiltinMeadow ? 'Meadow Realm' : (options?.mapName || (this.activeTiledMapData ? 'Custom Tiled Map' : 'Meadow Realm'));
     const isCustomMap = Boolean(this.activeTiledMapData || (this.activeTiledMapKey && this.activeTiledMapKey !== 'meadow'));
     this.activeWaveMode = options?.waveMode !== undefined ? options.waveMode : !isCustomMap;
     if (options?.hero) {

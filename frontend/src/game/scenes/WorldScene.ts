@@ -151,6 +151,7 @@ export class WorldScene extends Phaser.Scene {
   private isPvp = false;
   private localPlayerName = 'Hero';
   private existingNet?: { peer: any; connections: any[] };
+  private peerPointers = new Map<string, Phaser.GameObjects.Text>();
 
   constructor() {
     super('WorldScene');
@@ -158,8 +159,10 @@ export class WorldScene extends Phaser.Scene {
 
   public init(data?: WorldSceneInitData): void {
     this.tiledMapData = data?.tiledMapData;
-    this.tiledMapKey = data?.tiledMapKey || (this.tiledMapData ? `custom_tiled_${Date.now()}` : 'meadow');
-    this.mapName = data?.mapName || (this.tiledMapData ? 'Custom Tiled Map' : 'Meadow Realm');
+    const rawKey = data?.tiledMapKey;
+    const isBuiltinMeadow = !this.tiledMapData && (!rawKey || rawKey === 'meadow' || rawKey === 'builtin_meadow' || rawKey === 'builtin');
+    this.tiledMapKey = isBuiltinMeadow ? 'meadow' : (rawKey || (this.tiledMapData ? `custom_tiled_${Date.now()}` : 'meadow'));
+    this.mapName = isBuiltinMeadow ? 'Meadow Realm' : (data?.mapName || (this.tiledMapData ? 'Custom Tiled Map' : 'Meadow Realm'));
     this.initialHero = data?.hero || 'crimson';
     this.lobbyRoomCode = data?.lobbyRoomCode;
     this.isPvp = Boolean(data?.isPvp);
@@ -171,6 +174,10 @@ export class WorldScene extends Phaser.Scene {
     this.enemyAnimators.clear();
     this.projectileSprites.clear();
     this.peerAnimators.clear();
+    for (const ptr of this.peerPointers.values()) {
+      ptr.destroy();
+    }
+    this.peerPointers.clear();
     this.accumulator = 0;
   }
 
@@ -187,10 +194,12 @@ export class WorldScene extends Phaser.Scene {
       });
       tilemap = this.make.tilemap({ key: this.tiledMapKey });
     } else {
-      tilemap = this.make.tilemap({ key: this.tiledMapKey || 'meadow' });
+      const targetKey = (!this.tiledMapKey || this.tiledMapKey === 'builtin_meadow' || this.tiledMapKey === 'builtin') ? 'meadow' : this.tiledMapKey;
+      tilemap = this.make.tilemap({ key: targetKey });
     }
 
-    const rawJson = this.tiledMapData || this.cache.tilemap.get(this.tiledMapKey || 'meadow')?.data;
+    const targetKey = (!this.tiledMapKey || this.tiledMapKey === 'builtin_meadow' || this.tiledMapKey === 'builtin') ? 'meadow' : this.tiledMapKey;
+    const rawJson = this.tiledMapData || this.cache.tilemap.get(targetKey)?.data;
     const mapData = this.buildTiledMap(tilemap, rawJson);
     this.initAnimatedTiles(tilemap, rawJson);
 
@@ -257,7 +266,8 @@ export class WorldScene extends Phaser.Scene {
         const p = this.sim.getSnapshot().player;
         if (p.action !== 'dead' && p.invulnTimer <= 0) {
           const dist = Math.hypot(p.x - msg.x, p.y - msg.y);
-          if (dist <= 52) {
+          const hitRadius = msg.attackType.includes('arrow') ? 80 : (msg.attackType.includes('ultimate') ? 120 : 65);
+          if (dist <= hitRadius) {
             this.sim.damagePlayer(msg.damage);
             this.spawnDamageText(p.x, p.y - 12, msg.damage, true);
             this.spawnSkillBanner(p.x, p.y - 28, `HIT BY ${msg.hero.toUpperCase()}!`);
@@ -278,6 +288,11 @@ export class WorldScene extends Phaser.Scene {
       if (anim) {
         anim.destroy();
         this.peerAnimators.delete(peerId);
+      }
+      const ptr = this.peerPointers.get(peerId);
+      if (ptr) {
+        ptr.destroy();
+        this.peerPointers.delete(peerId);
       }
     });
   }
@@ -797,13 +812,23 @@ export class WorldScene extends Phaser.Scene {
 
   private handleSimEvents(events: SimEvent[]): void {
     for (const ev of events) {
-      if (ev.type === 'slash') {
-        if (ev.actorId === 'player' && this.netSession) {
-          const p = this.sim.getSnapshot().player;
-          const heroKind = (p.kind === 'elvish' || p.kind === 'legacy' ? p.kind : 'crimson') as CharacterKind;
+      if (this.netSession) {
+        const p = this.sim.getSnapshot().player;
+        const heroKind = (p.kind === 'elvish' || p.kind === 'legacy' ? p.kind : 'crimson') as CharacterKind;
+        if (ev.type === 'slash' && ev.actorId === 'player') {
           this.netSession.broadcastAttack(heroKind, ev.x, ev.y, `slash_${ev.combo}`, 26, ev.facing);
+        } else if (ev.type === 'bowRelease' && ev.actorId === 'player') {
+          this.netSession.broadcastAttack(heroKind, ev.x, ev.y, 'arrow_shot', 28, ev.facing);
+        } else if (ev.type === 'skill' && ev.actorId === 'player') {
+          this.netSession.broadcastAttack(heroKind, ev.x, ev.y, `skill_${ev.skill}`, 38, p.facing);
+        } else if (ev.type === 'ultimateVfx') {
+          this.netSession.broadcastAttack(heroKind, ev.x, ev.y, 'ultimate', 65, ev.dir);
+        } else if (ev.type === 'redFlameRecast') {
+          this.netSession.broadcastAttack(heroKind, ev.x, ev.y, 'flame_burst', 45, p.facing);
         }
-      } else if (ev.type === 'hit') {
+      }
+
+      if (ev.type === 'hit') {
         this.spawnDamageText(ev.x, ev.y, ev.damage, Boolean(ev.critical));
       } else if (ev.type === 'portalTransport') {
         const destKey = (ev.targetMapId || '').toLowerCase().trim();
@@ -1204,6 +1229,9 @@ export class WorldScene extends Phaser.Scene {
     // Sync Multiplayer Peers
     if (this.netSession) {
       const activePeers = new Set<string>();
+      const cam = this.cameras.main;
+      const worldView = cam.worldView;
+
       for (const [peerId, peer] of this.netSession.peers.entries()) {
         activePeers.add(peerId);
         let anim = this.peerAnimators.get(peerId);
@@ -1211,7 +1239,7 @@ export class WorldScene extends Phaser.Scene {
           const fakeActor: any = {
             id: peer.id,
             kind: peer.hero,
-            isPlayer: true,
+            isPlayer: false,
             x: peer.x,
             y: peer.y,
             facing: peer.facing,
@@ -1224,10 +1252,14 @@ export class WorldScene extends Phaser.Scene {
           anim = new CharacterAnimator(this, fakeActor);
           this.peerAnimators.set(peerId, anim);
         }
+
+        const heroLabel = peer.hero === 'crimson' ? 'Blade' : peer.hero === 'elvish' ? 'Ranger' : 'Knight';
         anim.sync({
           id: peer.id,
           kind: peer.hero,
-          isPlayer: true,
+          isPlayer: false,
+          peerName: `${peer.name} [${heroLabel}]`,
+          isPvp: this.isPvp,
           x: peer.x,
           y: peer.y,
           facing: peer.facing as any,
@@ -1250,12 +1282,49 @@ export class WorldScene extends Phaser.Scene {
           throwCooldown: 0,
           throwMaxCooldown: 5
         });
+
+        // Off-screen peer locator compass / arrow
+        const inView = worldView.contains(peer.x, peer.y);
+        let ptr = this.peerPointers.get(peerId);
+        if (!inView) {
+          const dist = Math.round(Math.hypot(peer.x - cam.midPoint.x, peer.y - cam.midPoint.y));
+          const angle = Math.atan2(peer.y - cam.midPoint.y, peer.x - cam.midPoint.x);
+          const margin = 36;
+          const halfW = (cam.width / (2 * cam.zoom)) - margin;
+          const halfH = (cam.height / (2 * cam.zoom)) - margin;
+          const clampX = cam.midPoint.x + Math.max(-halfW, Math.min(halfW, Math.cos(angle) * halfW));
+          const clampY = cam.midPoint.y + Math.max(-halfH, Math.min(halfH, Math.sin(angle) * halfH));
+
+          if (!ptr) {
+            ptr = this.add.text(clampX, clampY, '', {
+              fontFamily: 'sans-serif',
+              fontSize: '11px',
+              fontStyle: 'bold',
+              color: this.isPvp ? '#f87171' : '#38bdf8',
+              backgroundColor: '#0f172a',
+              padding: { x: 6, y: 3 },
+              stroke: '#000000',
+              strokeThickness: 2
+            });
+            ptr.setOrigin(0.5, 0.5);
+            this.peerPointers.set(peerId, ptr);
+          }
+          const arrow = Math.abs(angle) < 0.78 ? '▶' : (Math.abs(angle) > 2.35 ? '◀' : (angle > 0 ? '▼' : '▲'));
+          ptr.setText(`${arrow} ${peer.name} (${dist}m)`).setPosition(clampX, clampY).setDepth(1500).setVisible(true);
+        } else if (ptr) {
+          ptr.setVisible(false);
+        }
       }
 
       for (const [peerId, anim] of this.peerAnimators.entries()) {
         if (!activePeers.has(peerId)) {
           anim.destroy();
           this.peerAnimators.delete(peerId);
+          const ptr = this.peerPointers.get(peerId);
+          if (ptr) {
+            ptr.destroy();
+            this.peerPointers.delete(peerId);
+          }
         }
       }
     }

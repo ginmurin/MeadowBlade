@@ -263,13 +263,30 @@ export class LobbyClient {
         const targetPeerId = `meadowblade_room_${cleanCode.toLowerCase()}`;
         const conn = this.peer.connect(targetPeerId);
 
-        conn.on('open', () => {
+        // Save connection reference immediately so it's not lost on detachNetwork
+        if (!this.peerConnections.includes(conn)) {
           this.peerConnections = [conn];
+        }
+
+        const onOpen = () => {
+          if (!this.peerConnections.includes(conn)) {
+            this.peerConnections = [conn];
+          }
           conn.send({ type: 'JOIN_REQUEST', code: cleanCode, player: this.localPlayer });
-        });
+        };
+
+        if (conn.open || conn._open) {
+          onOpen();
+        } else {
+          conn.once('open', onOpen);
+        }
 
         conn.on('data', (data: any) => {
           this.handleMessage(data as LobbyMessage);
+        });
+
+        conn.on('close', () => {
+          this.peerConnections = this.peerConnections.filter((c) => c !== conn);
         });
 
         conn.on('error', (err: any) => {
@@ -482,20 +499,62 @@ export class MultiplayerGameSession {
       this.channel.onmessage = (ev) => this.handleMessage(ev.data as NetGameMessage);
     }
 
+    const bindConn = (conn: any) => {
+      const setup = () => {
+        conn.removeAllListeners?.('data');
+        conn.on('data', (data: any) => {
+          this.handleMessage(data as NetGameMessage);
+          // Relaying across peers: if we have multiple peer connections, forward to others
+          if (this.peerConnections.length > 1) {
+            for (const other of this.peerConnections) {
+              if (other !== conn && (other.open || other._open)) {
+                try {
+                  other.send(data);
+                } catch {}
+              }
+            }
+          }
+        });
+        conn.on('close', () => {
+          this.peerConnections = this.peerConnections.filter((c) => c !== conn);
+        });
+      };
+
+      if (conn.open || conn._open) {
+        setup();
+      } else {
+        conn.once?.('open', setup);
+      }
+    };
+
     if (existingNet && existingNet.peer) {
       this.peer = existingNet.peer;
       this.peerConnections = existingNet.connections || [];
       for (const conn of this.peerConnections) {
-        conn.removeAllListeners?.('data');
-        conn.on('data', (data: any) => this.handleMessage(data as NetGameMessage));
+        bindConn(conn);
       }
+      this.peer.removeAllListeners?.('connection');
       this.peer.on('connection', (conn: any) => {
-        this.peerConnections.push(conn);
-        conn.on('data', (data: any) => this.handleMessage(data as NetGameMessage));
-        conn.on('close', () => {
-          this.peerConnections = this.peerConnections.filter((c) => c !== conn);
-        });
+        if (!this.peerConnections.includes(conn)) {
+          this.peerConnections.push(conn);
+        }
+        bindConn(conn);
       });
+    } else {
+      // Fallback: connect to room host if existingNet was omitted
+      try {
+        const cleanCode = roomCode.trim().toLowerCase();
+        const fallbackPeer = new PeerConstructor();
+        this.peer = fallbackPeer;
+        fallbackPeer.on('open', () => {
+          const targetPeerId = `meadowblade_room_${cleanCode}`;
+          const conn = fallbackPeer.connect(targetPeerId);
+          this.peerConnections = [conn];
+          bindConn(conn);
+        });
+      } catch (e) {
+        console.warn('Game session fallback PeerJS failed:', e);
+      }
     }
   }
 
@@ -520,7 +579,7 @@ export class MultiplayerGameSession {
     this.channel?.postMessage(msg);
     for (const conn of this.peerConnections) {
       try {
-        if (conn.open) conn.send(msg);
+        if (conn.open || conn._open) conn.send(msg);
       } catch {}
     }
   }
@@ -539,7 +598,7 @@ export class MultiplayerGameSession {
     this.channel?.postMessage(msg);
     for (const conn of this.peerConnections) {
       try {
-        if (conn.open) conn.send(msg);
+        if (conn.open || conn._open) conn.send(msg);
       } catch {}
     }
   }
@@ -554,7 +613,7 @@ export class MultiplayerGameSession {
     this.channel?.postMessage(msg);
     for (const conn of this.peerConnections) {
       try {
-        if (conn.open) conn.send(msg);
+        if (conn.open || conn._open) conn.send(msg);
       } catch {}
     }
   }

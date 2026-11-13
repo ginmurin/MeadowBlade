@@ -8,6 +8,9 @@ export class CharacterAnimator {
   private readonly overlay: Phaser.GameObjects.Sprite | null;
   private readonly hpBg: Phaser.GameObjects.Rectangle | null = null;
   private readonly hpFill: Phaser.GameObjects.Rectangle | null = null;
+  private peerNameText?: Phaser.GameObjects.Text;
+  private peerHpBg?: Phaser.GameObjects.Rectangle;
+  private peerHpFill?: Phaser.GameObjects.Rectangle;
   private chargeBarBg?: Phaser.GameObjects.Rectangle;
   private chargeBarFill?: Phaser.GameObjects.Rectangle;
   private lastAnim = '';
@@ -119,6 +122,41 @@ export class CharacterAnimator {
       }
     }
 
+    // Peer Player overhead name tag and health bar
+    if (snapshot.peerName) {
+      if (!this.peerNameText) {
+        this.peerNameText = this.body.scene.add.text(snapshot.x, snapshot.y - 38, snapshot.peerName, {
+          fontFamily: 'sans-serif',
+          fontSize: '11px',
+          fontStyle: 'bold',
+          color: snapshot.isPvp ? '#f87171' : '#38bdf8',
+          stroke: '#05070a',
+          strokeThickness: 3
+        });
+        this.peerNameText.setOrigin(0.5, 0.5);
+      }
+      this.peerNameText.setText(snapshot.peerName);
+      this.peerNameText.setPosition(snapshot.x, snapshot.y - 38);
+      this.peerNameText.setDepth(snapshot.y + 40);
+      this.peerNameText.setVisible(alive);
+
+      if (!this.peerHpBg) {
+        this.peerHpBg = this.body.scene.add.rectangle(snapshot.x, snapshot.y - 28, 32, 5, 0x090d10, 0.9);
+      }
+      if (!this.peerHpFill) {
+        this.peerHpFill = this.body.scene.add.rectangle(snapshot.x - 15, snapshot.y - 28, 30, 3, snapshot.isPvp ? 0xef4444 : 0x22c55e, 1);
+        this.peerHpFill.setOrigin(0, 0.5);
+      }
+      this.peerHpBg.setPosition(snapshot.x, snapshot.y - 28).setDepth(snapshot.y + 40).setVisible(alive);
+      const hpRatio = Math.max(0, Math.min(1, snapshot.hp / Math.max(1, snapshot.maxHp)));
+      this.peerHpFill
+        .setPosition(snapshot.x - 15, snapshot.y - 28)
+        .setDisplaySize(Math.max(1, 30 * hpRatio), 3)
+        .setFillStyle(hpRatio > 0.5 ? (snapshot.isPvp ? 0xf87171 : 0x22c55e) : 0xef4444)
+        .setDepth(snapshot.y + 41)
+        .setVisible(alive);
+    }
+
     // Bow charge meter indicator
     if (snapshot.action === 'bowPull' && snapshot.isPlayer) {
       if (!this.chargeBarBg) {
@@ -155,6 +193,9 @@ export class CharacterAnimator {
     this.overlay?.destroy();
     this.hpBg?.destroy();
     this.hpFill?.destroy();
+    this.peerNameText?.destroy();
+    this.peerHpBg?.destroy();
+    this.peerHpFill?.destroy();
     this.chargeBarBg?.destroy();
     this.chargeBarFill?.destroy();
   }

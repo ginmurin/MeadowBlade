@@ -252,7 +252,7 @@ export class LobbyUI {
       const gameModeSelect = document.getElementById('lobby-game-mode') as HTMLSelectElement;
       const gameMode = (gameModeSelect?.value || 'coop') as GameMode;
 
-      let mapId = 'builtin_meadow';
+      let mapId = 'meadow';
       let mapName = 'Meadow Realm';
 
       if (mode === 'random') {
